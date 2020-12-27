@@ -179,6 +179,7 @@ class serial_manager:
 			func6,
 			func6,
 		]
+		timeout = None
 		try:
 			while exit_flag.empty():
 				recv = func[count]()
@@ -190,7 +191,7 @@ class serial_manager:
 					#if self._serial.out_waiting > 0:
 					#	self._serial.write(self._write_buf)
 					#	self._serial.flush()
-					resp_data.put([self._write_buf, True, frame_name], block=True, timeout=1)
+					resp_data.put([self._write_buf, True, frame_name], block=True, timeout=timeout)
 
 				#print("Run: connect()")
 			print("Exit: connect()")
@@ -212,6 +213,7 @@ class serial_manager:
 		"""
 		resp_ok = False
 		frame_name = ""
+		timeout = None
 		if data[0] in self._autoresp_rcv_pos.next:
 			# 受信解析OK
 			resp_ok, frame_end, frame_name = self._recv_analyze_ok(data, recv_data)
@@ -219,12 +221,12 @@ class serial_manager:
 			# OK + resp_ok=False + frame_end=True  -> 自動応答解析継続中だが、解析テーブルの末尾に到達しているので解析終了
 			# OK + resp_ok=False + frame_end=False -> 自動応答解析継続中
 			if resp_ok:
-				recv_data.put([data, True, frame_name], block=True, timeout=1)
+				recv_data.put([data, True, frame_name], block=True, timeout=timeout)
 			else:
 				if frame_end:
-					recv_data.put([data, True, frame_name], block=True, timeout=1)
+					recv_data.put([data, True, frame_name], block=True, timeout=timeout)
 				else:
-					recv_data.put([data, False, frame_name], block=True, timeout=1)
+					recv_data.put([data, False, frame_name], block=True, timeout=timeout)
 		else:
 			# 受信解析NG
 			resp_ok, frame_end, frame_name = self._recv_analyze_ng(data, recv_data)
@@ -233,11 +235,11 @@ class serial_manager:
 			if resp_ok:
 				# 既存データはノイズとしてアウトプット
 				# 今回データは現時点でOKなのでアウトプットしない
-				recv_data.put([b'', True, ""], block=True, timeout=1)
-				recv_data.put([data, False, ""], block=True, timeout=1)
+				recv_data.put([b'', True, ""], block=True, timeout=timeout)
+				recv_data.put([data, False, ""], block=True, timeout=timeout)
 			else:
 				# 既存データ＋今回データはノイズとしてアウトプット
-				recv_data.put([data, True, ""], block=True, timeout=1)
+				recv_data.put([data, True, ""], block=True, timeout=timeout)
 		return [resp_ok,frame_name]
 
 	def _recv_analyze_ok(self, data: bytes, recv_data: queue.Queue):

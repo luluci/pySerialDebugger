@@ -140,17 +140,23 @@ class gui_manager:
 			#executer.submit(self.wnd_proc, exit_flag)
 			executer.submit(self._serial.connect, exit_flag, recv_data, resp_data)
 			executer.submit(self.serial_hdle, exit_flag, recv_data, resp_data)
-			self.wnd_proc(exit_flag)
+			self.wnd_proc(exit_flag, recv_data, resp_data)
 
-	def wnd_proc(self, exit_flag: queue.Queue):
+	def wnd_proc(self, exit_flag: queue.Queue, recv_data: queue.Queue, resp_data: queue.Queue):
 		while True:
 			event, values = self._window.read()
 
 			if event in self._events:
 				self._events[event](values)
 			if event is None:
+				# 各スレッドに終了通知
 				exit_flag.put(True)
 				exit_flag.put(True)
+				# queueを空にしておく
+				while not recv_data.empty():
+					recv_data.get_nowait()
+				while not resp_data.empty():
+					resp_data.get_nowait()
 				break
 		print("Exit: wnd_proc()")
 
@@ -161,7 +167,7 @@ class gui_manager:
 			while exit_flag.empty():
 				if not recv_data.empty():
 					# queueからデータ取得
-					data, output_req, autoresp_name = recv_data.get(block=True, timeout=1)
+					data, output_req, autoresp_name = recv_data.get_nowait()
 					# データ反映
 					self.log_str += data.hex()
 					if output_req:
@@ -169,7 +175,7 @@ class gui_manager:
 						print(log_temp)
 						self.log_str = ""
 				if not resp_data.empty():
-					data, output_req, autoresp_name = resp_data.get(block=True, timeout=1)
+					data, output_req, autoresp_name = resp_data.get_nowait()
 					if output_req:
 						log_temp = "[{0:2}] {1:10} | {2}".format("TX", data.hex(), autoresp_name)
 						print(log_temp)
