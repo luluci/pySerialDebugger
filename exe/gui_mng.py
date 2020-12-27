@@ -68,8 +68,19 @@ class gui_manager:
 			[sg.Button("Update", key="btn_autoresp_update", size=(15, 1), enable_events=True)],
 		]
 		# Define: log View
+		"""
 		layout_serial_log = [
 			sg.Table([ ["","",""] ], ["Dir", "HEX", "Analyze"], key="table_log", num_rows=20, col_widths=[3,20,60], auto_size_columns=False),
+		]
+		"""
+		layout_serial_log_col = [
+			[sg.Text("Dir", size=(10, 0)), sg.Text("HEX", size=(10, 0)), sg.Text("Detail", size=(60,0))]
+		]
+		layout_serial_log_caption = [
+			sg.Column(layout_serial_log_col, scrollable=False, size=(750, 20))
+		]
+		layout_serial_log = [
+			sg.Output(size=(110,10))
 		]
 		layout = [
 			[*leyout_serial_connect, sg.Frame("Status:", [layout_serial_status])],
@@ -77,6 +88,7 @@ class gui_manager:
 			[sg.Text("Auto Response:")],
 			[sg.Frame("Auto Response Settings:", layout_serial_auto_resp_column)],
 			[sg.Text("Log:")],
+			[*layout_serial_log_caption],
 			[*layout_serial_log],
 		]
 		self._window = sg.Window("test window.", layout, finalize=True)
@@ -145,8 +157,6 @@ class gui_manager:
 	def serial_hdle(self, exit_flag: queue.Queue, recv_data: queue.Queue, resp_data: queue.Queue):
 		self.log_str = ""
 		self.log_pos = 0
-		log_wnd = self._window["table_log"]
-		self._log = []
 		try:
 			while exit_flag.empty():
 				if not recv_data.empty():
@@ -154,14 +164,14 @@ class gui_manager:
 					if isinstance(data, bytes):
 						self.log_str += data.hex()
 					else:
-						self._log.append(["rcv", self.log_str, ""])
-						self._window["table_log"].update(values=self._log)
+						log_temp = "[{0:2}] {1:10} | {2}".format("RX", self.log_str, "")
+						print(log_temp)
 						self.log_str = ""
 				if not resp_data.empty():
 					data = resp_data.get(block=True, timeout=1)
 					if isinstance(data, bytes):
-						self._log.append(["resp", data.hex(), ""])
-						self._window["table_log"].update(values=self._log)
+						log_temp = "[{0:2}] {1:10} | {2}".format("TX", data.hex(), "")
+						print(log_temp)
 				#print("Run: serial_hdle()")
 				time.sleep(0.05)
 			print("Exit: serial_hdle()")
