@@ -14,6 +14,7 @@ class gui_manager:
 		self._serial = serial_mng.serial_manager()
 		# Window Info
 		self._window: sg.Window = None
+		self._gui_font = ('Consolas', 11)
 		self._init_com()
 		self._init_window()
 		self._init_event()
@@ -74,13 +75,13 @@ class gui_manager:
 		]
 		"""
 		layout_serial_log_col = [
-			[sg.Text("Dir", size=(10, 0)), sg.Text("HEX", size=(10, 0)), sg.Text("Detail", size=(60,0))]
+			[sg.Text("[TxRx]"), sg.Text("CommData", size=(40,1)), sg.Text("(Detail)")]
 		]
 		layout_serial_log_caption = [
 			sg.Column(layout_serial_log_col, scrollable=False, size=(750, 20))
 		]
 		layout_serial_log = [
-			sg.Output(size=(110,10), echo_stdout_stderr=True)
+			sg.Output(size=(110, 10), echo_stdout_stderr=True, font=self._gui_font)
 		]
 		layout = [
 			[*leyout_serial_connect, sg.Frame("Status:", [layout_serial_status])],
@@ -171,13 +172,16 @@ class gui_manager:
 					# データ反映
 					self.log_str += data.hex()
 					if output_req:
-						log_temp = "[{0:2}] {1:10} | {2}".format("RX", self.log_str, autoresp_name)
+						if autoresp_name == "":
+							log_temp = "[{0:2}]   {1:40}".format("RX", self.log_str)
+						else:
+							log_temp = "[{0:2}]   {1:40} ({2})".format("RX", self.log_str, autoresp_name)
 						print(log_temp)
 						self.log_str = ""
 				if not resp_data.empty():
 					data, output_req, autoresp_name = resp_data.get_nowait()
 					if output_req:
-						log_temp = "[{0:2}] {1:10} | {2}".format("TX", data.hex(), autoresp_name)
+						log_temp = "[{0:2}]   {1:40} ({2})".format("TX", data.hex(), autoresp_name)
 						print(log_temp)
 				#print("Run: serial_hdle()")
 				time.sleep(0.05)
