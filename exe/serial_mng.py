@@ -129,12 +129,12 @@ class serial_manager:
 		# listening
 		while not exit_flag.empty():
 			recv = self._serial.read(1)
-			trans_req = self._recv_analyze(recv, recv_data)
+			trans_req, frame_name = self._recv_analyze(recv, recv_data)
 			if trans_req:
 				if self._serial.out_waiting > 0:
 					self._serial.write(self._write_buf)
 					self._serial.flush()
-					resp_data.put(self._write_buf)
+					resp_data.put([self._write_buf, True, frame_name], block=True, timeout=timeout)
 		"""
 		self._autoresp_rcv_pos = self._autoresp_rcv
 		count = 0
