@@ -83,6 +83,7 @@ class serial_manager:
 			self.is_tail = False
 			self.next = {}
 			self.resp = None
+			self.name = ""
 
 	def autoresp_build(self, autoresp_data: List[List[any]]) -> None:
 		"""
@@ -91,8 +92,6 @@ class serial_manager:
 		"""
 		# Response Table
 		self._autoresp_resp = {}
-		for resp in autoresp_data:
-			self._autoresp_resp[resp[0]] = resp[2]
 		# Analyze Table
 		self._autoresp_rcv = self.autoresp_node()
 		for resp in autoresp_data:
@@ -104,9 +103,9 @@ class serial_manager:
 				node_ref = node_ref.next[byte]
 			# 末端ノードに応答データをセット
 			node_ref.is_tail = True
-			node_ref.resp = self._autoresp_resp[resp[0]]
-
-
+			node_ref.resp = resp[2]
+			node_ref.name = resp[0]
+			self._autoresp_resp[resp[0]] = node_ref
 
 	def autoresp_update(self, autoresp_data: List[List[any]]) -> None:
 		"""
@@ -114,7 +113,7 @@ class serial_manager:
 		"""
 		# Response Table
 		for resp in autoresp_data:
-			self._autoresp_resp[resp[0]] = resp[2]
+			self._autoresp_resp[resp[0]].resp = resp[2]
 
 	def connect(self, exit_flag: queue.Queue, recv_data: queue.Queue, resp_data: queue.Queue) -> None:
 		"""
@@ -135,19 +134,65 @@ class serial_manager:
 				if self._serial.out_waiting > 0:
 					self._serial.write(self._write_buf)
 					self._serial.flush()
+					resp_data.put(self._write_buf)
 		"""
+		self._autoresp_rcv_pos = self._autoresp_rcv
 		count = 0
+		def func1():
+			recv = bytes.fromhex('AB')
+			time.sleep(0.1)
+			return recv
+		def func2():
+			recv = bytes.fromhex('CD')
+			time.sleep(0.1)
+			return recv
+		def func3():
+			recv = bytes.fromhex('01')
+			time.sleep(0.1)
+			return recv
+		def func4():
+			recv = bytes.fromhex('02')
+			time.sleep(0.1)
+			return recv
+		def func5():
+			recv = bytes.fromhex('EF')
+			time.sleep(0.1)
+			return recv
+		def func6():
+			recv = bytes.fromhex('89')
+			time.sleep(1)
+			return recv
+		func = [
+			func1,
+			func2,
+			func3,
+			func4,
+			func6,
+			func6,
+			func6,
+			func1,
+			func2,
+			func5,
+			func3,
+			func4,
+			func6,
+			func6,
+			func6,
+		]
 		try:
 			while exit_flag.empty():
-				recv_data.put(bytes.fromhex('AA'), block=True, timeout=1)
-				recv_data.put(bytes.fromhex('BB'), block=True, timeout=1)
-				resp_data.put(bytes.fromhex('FFFFFFEE'), block=True, timeout=1)
+				recv = func[count]()
 				count += 1
-				if count > 10:
+				if len(func) <= count:
 					count = 0
-					recv_data.put(True, block=True, timeout=1)
+				trans_req, frame_name = self._recv_analyze(recv, recv_data)
+				if trans_req:
+					#if self._serial.out_waiting > 0:
+					#	self._serial.write(self._write_buf)
+					#	self._serial.flush()
+					resp_data.put([self._write_buf, True, frame_name], block=True, timeout=1)
+
 				#print("Run: connect()")
-				time.sleep(1)
 			print("Exit: connect()")
 		except:
 			import traceback
@@ -159,49 +204,70 @@ class serial_manager:
 	def _thread_msg_next(self):
 		pass
 
-	def _recv_analyze(self, data: bytes, recv_data: queue.Queue) -> bool:
+	def _recv_analyze(self, data: bytes, recv_data: queue.Queue):
 		"""
 		受信解析を実施
 		送信が必要であれば返り値で示す。
+		queueへの通知：[今回取得バイト, ログ出力要求, 詳細]
 		"""
 		resp_ok = False
+		frame_name = ""
 		if data[0] in self._autoresp_rcv_pos.next:
 			# 受信解析OK
-			self._recv_analyze_ok(data, recv_data)
+			resp_ok, frame_end, frame_name = self._recv_analyze_ok(data, recv_data)
+			# OK + resp_ok=True  + frame_end=any   -> 自動応答マッチ
+			# OK + resp_ok=False + frame_end=True  -> 自動応答解析継続中だが、解析テーブルの末尾に到達しているので解析終了
+			# OK + resp_ok=False + frame_end=False -> 自動応答解析継続中
+			if resp_ok:
+				recv_data.put([data, True, frame_name], block=True, timeout=1)
+			else:
+				if frame_end:
+					recv_data.put([data, True, frame_name], block=True, timeout=1)
+				else:
+					recv_data.put([data, False, frame_name], block=True, timeout=1)
 		else:
 			# 受信解析NG
-			self._recv_analyze_ng(data, recv_data)
-		return resp_ok
+			resp_ok, frame_end, frame_name = self._recv_analyze_ng(data, recv_data)
+			# NG + resp_ok=True  -> これまでの解析は失敗＋次の解析開始
+			# NG + resp_ok=False -> これまでの解析は失敗＋次回解析にもマッチしない
+			if resp_ok:
+				# 既存データはノイズとしてアウトプット
+				# 今回データは現時点でOKなのでアウトプットしない
+				recv_data.put([b'', True, ""], block=True, timeout=1)
+				recv_data.put([data, False, ""], block=True, timeout=1)
+			else:
+				# 既存データ＋今回データはノイズとしてアウトプット
+				recv_data.put([data, True, ""], block=True, timeout=1)
+		return [resp_ok,frame_name]
 
-	def _recv_analyze_ok(self, data: bytes, recv_data: queue.Queue) -> bool:
+	def _recv_analyze_ok(self, data: bytes, recv_data: queue.Queue):
 		# 受信解析OK
 		resp_ok = False
-		recv_data.put(data)
 		frame_end = False
+		frame_name = ""
 		# 次状態へ
 		self._autoresp_rcv_pos = self._autoresp_rcv_pos.next[data[0]]
 		# 末尾チェック
 		if self._autoresp_rcv_pos.is_tail:
-				self._write_buf = self._autoresp_rcv_pos.resp
-				resp_ok = True
-				frame_end = True
+			self._write_buf = self._autoresp_rcv_pos.resp
+			resp_ok = True
+			frame_end = True
+			frame_name = self._autoresp_rcv_pos.name
 		# 遷移先が空なら先頭へ戻る
 		if not self._autoresp_rcv_pos.next:
 			self._autoresp_rcv_pos = self._autoresp_rcv
 			frame_end = True
-		if frame_end:
-			recv_data.put(True)
-		return resp_ok
+		return [resp_ok, frame_end, frame_name]
 
-	def _recv_analyze_ng(self, data: bytes, recv_data: queue.Queue) -> bool:
+	def _recv_analyze_ng(self, data: bytes, recv_data: queue.Queue):
 		# 受信解析NG
 		resp_ok = False
-		recv_data.put(True)
-		recv_data.put(data)
+		frame_end = False
+		frame_name = ""
 		# 先頭へ戻る
 		self._autoresp_rcv_pos = self._autoresp_rcv
 		# 先頭からマッチするかチェック
 		if data[0] in self._autoresp_rcv_pos.next:
 			# 受信解析OK
-			resp_ok = self._recv_analyze_ok(data)
-		return resp_ok
+			resp_ok, frame_end, frame_name = self._recv_analyze_ok(data, recv_data)
+		return [resp_ok, frame_end, frame_name]

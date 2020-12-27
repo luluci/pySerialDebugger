@@ -80,7 +80,7 @@ class gui_manager:
 			sg.Column(layout_serial_log_col, scrollable=False, size=(750, 20))
 		]
 		layout_serial_log = [
-			sg.Output(size=(110,10))
+			sg.Output(size=(110,10), echo_stdout_stderr=True)
 		]
 		layout = [
 			[*leyout_serial_connect, sg.Frame("Status:", [layout_serial_status])],
@@ -160,17 +160,18 @@ class gui_manager:
 		try:
 			while exit_flag.empty():
 				if not recv_data.empty():
-					data = recv_data.get(block=True, timeout=1)
-					if isinstance(data, bytes):
-						self.log_str += data.hex()
-					else:
-						log_temp = "[{0:2}] {1:10} | {2}".format("RX", self.log_str, "")
+					# queueからデータ取得
+					data, output_req, autoresp_name = recv_data.get(block=True, timeout=1)
+					# データ反映
+					self.log_str += data.hex()
+					if output_req:
+						log_temp = "[{0:2}] {1:10} | {2}".format("RX", self.log_str, autoresp_name)
 						print(log_temp)
 						self.log_str = ""
 				if not resp_data.empty():
-					data = resp_data.get(block=True, timeout=1)
-					if isinstance(data, bytes):
-						log_temp = "[{0:2}] {1:10} | {2}".format("TX", data.hex(), "")
+					data, output_req, autoresp_name = resp_data.get(block=True, timeout=1)
+					if output_req:
+						log_temp = "[{0:2}] {1:10} | {2}".format("TX", data.hex(), autoresp_name)
 						print(log_temp)
 				#print("Run: serial_hdle()")
 				time.sleep(0.05)
@@ -233,6 +234,8 @@ class gui_manager:
 		"""
 		# 定義を読み込む
 		self._auto_response_settings()
+		# SerialManagaerに通知
+		self._serial.autoresp_build(self._autoresp_data)
 		# GUIに落とし込む
 		# AutoResp定義解析
 		resp_len_max = 0
@@ -270,6 +273,7 @@ class gui_manager:
 			resp_data = [self._window[(i, j)].Get() for j in range(0, len(autoresp[2]))]
 			autoresp[2] = bytes.fromhex(''.join(resp_data))
 		# SerialManagaerに通知
+		self._serial.autoresp_update(self._autoresp_data)
 
 	def _hex2bytes(self, hex: str) -> bytes:
 		return bytes.fromhex(hex)
