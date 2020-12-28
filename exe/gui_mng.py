@@ -8,6 +8,7 @@ from multiprocessing import Value
 import queue
 
 class gui_manager:
+	DISCONNECTED, DISCONNECTING, CONNECTED, CONNECTING = (1,2,3,4)
 	
 	def __init__(self) -> None:
 		# Serial Info
@@ -18,6 +19,7 @@ class gui_manager:
 		self._init_com()
 		self._init_window()
 		self._init_event()
+		self._gui_conn_state = self.DISCONNECTED
 
 	def __del__(self) -> None:
 		self.close()
@@ -69,11 +71,6 @@ class gui_manager:
 			[sg.Button("Update", key="btn_autoresp_update", size=(15, 1), enable_events=True)],
 		]
 		# Define: log View
-		"""
-		layout_serial_log = [
-			sg.Table([ ["","",""] ], ["Dir", "HEX", "Analyze"], key="table_log", num_rows=20, col_widths=[3,20,60], auto_size_columns=False),
-		]
-		"""
 		layout_serial_log_col = [
 			[sg.Text("[TxRx]"), sg.Text("CommData", size=(40,1)), sg.Text("(Detail)")]
 		]
@@ -102,6 +99,8 @@ class gui_manager:
 			# Button: Connect
 			"btn_connect": self._hdl_btn_connect,
 			"btn_autoresp_update": self._hdl_btn_autoresp_update,
+			# Script Write Event
+			"_swe_disconnected": self._hdl_swe_disconnected,
 		}
 		# event init
 		self._hdl_btn_connect_init()
@@ -113,37 +112,114 @@ class gui_manager:
 	def _hdl_btn_connect_init(self):
 		self._conn_btn_hdl = self._window["btn_connect"]
 		self._conn_status_hdl = self._window["text_status"]
+
 	def _hdl_btn_connect(self, values):
-		print("Button Pushed!")
-		if self._serial.is_open():
-			self._serial_close()
-			self._conn_btn_hdl.Update(text="Connect")
-			self._conn_status_hdl.Update(value="---")
-		else:
-			if self._serial_connect():
+		#print("Button Pushed!")
+		# 状態ごとに処理を実施
+		if self._gui_conn_state == self.DISCONNECTED:
+			# 通信開始処理を実施
+			# 状況判定
+			if self._future_serial is not None:
+				# スレッドが稼働中
+				print("切断済みのはずなのにスレッドが稼働中。バグでは？")
+			# シリアル通信がオープンしていたら閉じる
+			if self._serial.is_open():
+				self._serial.close()
+			# シリアル通信をオープン
+			if self._serial_open():
+				# オープンに成功したら
+				# スレッドにて通信制御を開始
+				self._future_serial = self._executer.submit(self._serial.connect, self._exit_flag_serial_mng, self._serial_notify)
+				# GUI更新
 				self._conn_btn_hdl.Update(text="Disconnect")
 				self._conn_status_hdl.Update(value=self._get_com_info())
+				print("Port Open, and Comm Start: " + self._get_com_info())
+				# 次状態へ
+				self._gui_conn_state = self.CONNECTED
 			else:
-				self._conn_status_hdl.Update(value="Serial Open Failed.")
+				# オープンに失敗したら
+				# メッセージを出して終了
+				print("Serial Open Failed!")
+
+		elif self._gui_conn_state == self.CONNECTING:
+			# 現状で接続中はない
+			pass
+
+		elif self._gui_conn_state == self.CONNECTED:
+			# 通信切断処理を実施
+			# 状況判定
+			if self._future_serial is None:
+				# スレッドが非稼働中
+				print("接続済みのはずなのにスレッドが非稼働中。バグでは？")
+			else:
+				# スレッドに終了通知
+				self._exit_flag_serial_mng.put(True)
+			# 切断中に移行
+			self._gui_conn_state = self.DISCONNECTING
+			# GUI操作
+			self._conn_btn_hdl.Update(text="Disconnecting", disabled=True)
+			self._conn_status_hdl.Update(value="Disconnecting...")
+			# イベント周期で切断をポーリング
+			# self._window.write_event_value("btn_connect", "")
+
+		elif self._gui_conn_state == self.DISCONNECTING:
+			# 切断完了判定を実施
+			if not self._comm_hdle_notify.empty():
+				# 切断通知あり
+				# キューを空にしておく
+				self._comm_hdle_notify.get_nowait()
+				# 念のため切断
+				self._serial_close()
+				# スレッド解放
+				self._future_serial = None
+				# GUI操作
+				self._conn_btn_hdl.Update(text="Connect", disabled=False)
+				self._conn_status_hdl.Update(value="---")
+				# 次状態へ
+				self._gui_conn_state = self.DISCONNECTED
+			else:
+				# イベント周期で切断をポーリング
+				# time.sleep(0.01)
+				# self._window.write_event_value("btn_connect", "")
+				pass
+
+		else:
+			print("ありえない状態。バグ")
+
+	def _hdl_swe_disconnected(self, values):
+		# 念のため切断
+		self._serial_close()
+		# スレッド解放
+		self._future_serial = None
+		# GUI操作
+		self._conn_btn_hdl.Update(text="Connect", disabled=False)
+		self._conn_status_hdl.Update(value="---")
+		# 次状態へ
+		self._gui_conn_state = self.DISCONNECTED
 
 	def _hdl_btn_autoresp_update(self, values):
 		self._auto_response_update()
 
 	def exe(self):
+		# スレッド管理
+		self._future_comm_hdle = None
+		self._future_serial = None
+		# スレッド間通信用キュー
+		self._exit_flag_serial_mng = queue.Queue(10)
+		self._exit_flag_comm_hdle = queue.Queue(10)
+		self._serial_notify = queue.Queue(10)
+		self._comm_hdle_notify = queue.Queue(10)
 		# (1) Windows イベントハンドラ
 		# (2) シリアル通信
 		# (3) シリアル通信->送受信->GUI
 		# の3スレッドで処理を実施する
-		with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executer:
-			exit_flag = queue.Queue(10)
-			recv_data = queue.Queue(10)
-			resp_data = queue.Queue(10)
-			#executer.submit(self.wnd_proc, exit_flag)
-			executer.submit(self._serial.connect, exit_flag, recv_data, resp_data)
-			executer.submit(self.serial_hdle, exit_flag, recv_data, resp_data)
-			self.wnd_proc(exit_flag, recv_data, resp_data)
+		self._executer = concurrent.futures.ThreadPoolExecutor(max_workers=3)
+		self._future_comm_hdle = self._executer.submit(self.comm_hdle, self._exit_flag_comm_hdle, self._serial_notify, self._comm_hdle_notify)
+		#self._future_serial = self._executer.submit(self._serial.connect, self._exit_flag_serial_mng, self._serial_notify)
+		self.wnd_proc()
+		self._executer.shutdown()
 
-	def wnd_proc(self, exit_flag: queue.Queue, recv_data: queue.Queue, resp_data: queue.Queue):
+	def wnd_proc(self):
 		while True:
 			event, values = self._window.read()
 
@@ -151,38 +227,51 @@ class gui_manager:
 				self._events[event](values)
 			if event is None:
 				# 各スレッドに終了通知
-				exit_flag.put(True)
-				exit_flag.put(True)
+				self._exit_flag_serial_mng.put(True)
+				self._exit_flag_comm_hdle.put(True)
 				# queueを空にしておく
-				while not recv_data.empty():
-					recv_data.get_nowait()
-				while not resp_data.empty():
-					resp_data.get_nowait()
+				while not self._serial_notify.empty():
+					self._serial_notify.get_nowait()
 				break
 		print("Exit: wnd_proc()")
 
-	def serial_hdle(self, exit_flag: queue.Queue, recv_data: queue.Queue, resp_data: queue.Queue):
+	def comm_hdle(self, exit_flag: queue.Queue, serial_notify: queue.Queue, self_notify: queue.Queue):
 		self.log_str = ""
 		self.log_pos = 0
 		try:
 			while exit_flag.empty():
-				if not recv_data.empty():
+				if not serial_notify.empty():
 					# queueからデータ取得
-					data, output_req, autoresp_name = recv_data.get_nowait()
-					# データ反映
-					self.log_str += data.hex()
-					if output_req:
-						if autoresp_name == "":
-							log_temp = "[{0:2}]   {1:40}".format("RX", self.log_str)
-						else:
-							log_temp = "[{0:2}]   {1:40} ({2})".format("RX", self.log_str, autoresp_name)
-						print(log_temp)
+					notify, data, autoresp_name = serial_notify.get_nowait()
+					# 通知に応じて処理実施
+					if notify == serial_mng.ThreadNotify.PUSH_RX_BYTE:
+						# ログバッファに受信データを追加
+						# ログ出力は実施しない
+						self.log_str += data.hex()
+					elif notify == serial_mng.ThreadNotify.PUSH_RX_BYTE_AND_COMMIT:
+						# ログバッファに受信データを追加
+						self.log_str += data.hex()
+						# ログ出力
+						self.comm_hdle_log_output("RX", self.log_str, autoresp_name)
+						# バッファクリア
 						self.log_str = ""
-				if not resp_data.empty():
-					data, output_req, autoresp_name = resp_data.get_nowait()
-					if output_req:
-						log_temp = "[{0:2}]   {1:40} ({2})".format("TX", data.hex(), autoresp_name)
-						print(log_temp)
+					elif notify == serial_mng.ThreadNotify.COMMIT_AND_PUSH_RX_BYTE:
+						# ログ出力
+						self.comm_hdle_log_output("RX", self.log_str, autoresp_name)
+						# バッファクリア
+						self.log_str = ""
+						# ログバッファに受信データを追加
+						self.log_str += data.hex()
+					elif notify == serial_mng.ThreadNotify.COMMIT_TX_BYTES:
+						# 送信データをログ出力
+						self.comm_hdle_log_output("TX", data.hex(), autoresp_name)
+					elif notify == serial_mng.ThreadNotify.DISCONNECTED:
+						# GUIスレッドに切断を通知
+						# self_notify.put(True)
+						# スレッドセーフらしい
+						self._window.write_event_value("_swe_disconnected", "")
+					else:
+						pass
 				#print("Run: serial_hdle()")
 				time.sleep(0.05)
 			print("Exit: serial_hdle()")
@@ -190,13 +279,19 @@ class gui_manager:
 			import traceback
 			traceback.print_exc()
 
+	def comm_hdle_log_output(self, rxtx:str, data:str, detail:str):
+		if detail == "":
+			log_temp = "[{0:2}]   {1:40}".format(rxtx, data)
+		else:
+			log_temp = "[{0:2}]   {1:40} ({2})".format(rxtx, data, detail)
+		print(log_temp)
 
 	def close(self) -> None:
 		if self._window:
 			self._window.close()
 		self._serial.close()
 
-	def _serial_connect(self) -> bool:
+	def _serial_open(self) -> bool:
 		result = self._serial.open(
 			self._get_com_port(),
 			self._get_com_baudrate(),

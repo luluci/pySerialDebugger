@@ -5,6 +5,17 @@ from serial.tools import list_ports, list_ports_common
 from multiprocessing import Value
 import queue
 import time
+import enum
+
+class ThreadNotify(enum.Enum):
+	"""
+	GUIへの通知
+	"""
+	PUSH_RX_BYTE = enum.auto()				# 受信データをバッファに追加
+	PUSH_RX_BYTE_AND_COMMIT = enum.auto()	# 受信データをバッファに追加して、バッファ出力(正常異常問わず解析終了した)
+	COMMIT_AND_PUSH_RX_BYTE = enum.auto()	# 既存バッファ出力後、受信データをバッファに追加
+	COMMIT_TX_BYTES = enum.auto()			# 自動応答データを出力
+	DISCONNECTED = enum.auto()				# シリアル切断
 
 class serial_manager:
 	
@@ -67,10 +78,10 @@ class serial_manager:
 			return False
 
 	def close(self) -> None:
-		if self._is_open:
+		if self._serial.is_open:
 			print("SerialPort closed.")
 			self._serial.close()
-			self._is_open = False
+		self._is_open = False
 
 	def is_open(self) -> bool:
 		return self._is_open
@@ -115,7 +126,7 @@ class serial_manager:
 		for resp in autoresp_data:
 			self._autoresp_resp[resp[0]].resp = resp[2]
 
-	def connect(self, exit_flag: queue.Queue, recv_data: queue.Queue, resp_data: queue.Queue) -> None:
+	def connect(self, exit_flag: queue.Queue, notify: queue.Queue) -> None:
 		"""
 		Serial open and communicate.
 		無限ループで通信を続けるのでスレッド化して実施する。
@@ -186,14 +197,23 @@ class serial_manager:
 				count += 1
 				if len(func) <= count:
 					count = 0
-				trans_req, frame_name = self._recv_analyze(recv, recv_data)
+				trans_req, frame_name = self._recv_analyze(recv, notify)
 				if trans_req:
 					#if self._serial.out_waiting > 0:
 					#	self._serial.write(self._write_buf)
 					#	self._serial.flush()
-					resp_data.put([self._write_buf, True, frame_name], block=True, timeout=timeout)
-
+					notify_msg = [ThreadNotify.COMMIT_TX_BYTES, self._write_buf, frame_name]
+					notify.put(notify_msg, block=True, timeout=timeout)
 				#print("Run: connect()")
+
+			# シリアル通信切断
+			self.close()
+			# queueを空にしておく
+			while not exit_flag.empty():
+				exit_flag.get_nowait()
+			# 処理を終了することを通知
+			notify_msg = [ThreadNotify.DISCONNECTED, None, None]
+			notify.put(notify_msg, block=True, timeout=timeout)
 			print("Exit: connect()")
 		except:
 			import traceback
@@ -205,7 +225,7 @@ class serial_manager:
 	def _thread_msg_next(self):
 		pass
 
-	def _recv_analyze(self, data: bytes, recv_data: queue.Queue):
+	def _recv_analyze(self, data: bytes, notify: queue.Queue):
 		"""
 		受信解析を実施
 		送信が必要であれば返り値で示す。
@@ -214,35 +234,37 @@ class serial_manager:
 		resp_ok = False
 		frame_name = ""
 		timeout = None
+		notify_msg = []
 		if data[0] in self._autoresp_rcv_pos.next:
 			# 受信解析OK
-			resp_ok, frame_end, frame_name = self._recv_analyze_ok(data, recv_data)
+			resp_ok, frame_end, frame_name = self._recv_analyze_ok(data)
 			# OK + resp_ok=True  + frame_end=any   -> 自動応答マッチ
 			# OK + resp_ok=False + frame_end=True  -> 自動応答解析継続中だが、解析テーブルの末尾に到達しているので解析終了
 			# OK + resp_ok=False + frame_end=False -> 自動応答解析継続中
 			if resp_ok:
-				recv_data.put([data, True, frame_name], block=True, timeout=timeout)
+				notify_msg = [ThreadNotify.PUSH_RX_BYTE_AND_COMMIT, data, frame_name]
 			else:
 				if frame_end:
-					recv_data.put([data, True, frame_name], block=True, timeout=timeout)
+					notify_msg = [ThreadNotify.PUSH_RX_BYTE_AND_COMMIT, data, frame_name]
 				else:
-					recv_data.put([data, False, frame_name], block=True, timeout=timeout)
+					notify_msg = [ThreadNotify.PUSH_RX_BYTE, data, frame_name]
 		else:
 			# 受信解析NG
-			resp_ok, frame_end, frame_name = self._recv_analyze_ng(data, recv_data)
+			resp_ok, frame_end, frame_name = self._recv_analyze_ng(data)
 			# NG + resp_ok=True  -> これまでの解析は失敗＋次の解析開始
 			# NG + resp_ok=False -> これまでの解析は失敗＋次回解析にもマッチしない
 			if resp_ok:
 				# 既存データはノイズとしてアウトプット
 				# 今回データは現時点でOKなのでアウトプットしない
-				recv_data.put([b'', True, ""], block=True, timeout=timeout)
-				recv_data.put([data, False, ""], block=True, timeout=timeout)
+				notify_msg = [ThreadNotify.COMMIT_AND_PUSH_RX_BYTE, data, frame_name]
 			else:
 				# 既存データ＋今回データはノイズとしてアウトプット
-				recv_data.put([data, True, ""], block=True, timeout=timeout)
+				notify_msg = [ThreadNotify.PUSH_RX_BYTE_AND_COMMIT, data, frame_name]
+		# 通知を実施
+		notify.put(notify_msg, block=True, timeout=timeout)
 		return [resp_ok,frame_name]
 
-	def _recv_analyze_ok(self, data: bytes, recv_data: queue.Queue):
+	def _recv_analyze_ok(self, data: bytes):
 		# 受信解析OK
 		resp_ok = False
 		frame_end = False
@@ -261,7 +283,7 @@ class serial_manager:
 			frame_end = True
 		return [resp_ok, frame_end, frame_name]
 
-	def _recv_analyze_ng(self, data: bytes, recv_data: queue.Queue):
+	def _recv_analyze_ng(self, data: bytes):
 		# 受信解析NG
 		resp_ok = False
 		frame_end = False
@@ -271,5 +293,5 @@ class serial_manager:
 		# 先頭からマッチするかチェック
 		if data[0] in self._autoresp_rcv_pos.next:
 			# 受信解析OK
-			resp_ok, frame_end, frame_name = self._recv_analyze_ok(data, recv_data)
+			resp_ok, frame_end, frame_name = self._recv_analyze_ok(data)
 		return [resp_ok, frame_end, frame_name]
