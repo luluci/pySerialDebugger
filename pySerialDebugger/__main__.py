@@ -1,4 +1,4 @@
-import gui_mng
+from . import gui_mng
 
 if __name__ == "__main__":
 	# オブジェクト生成

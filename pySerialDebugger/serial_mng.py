@@ -68,7 +68,7 @@ class serial_manager:
 			return False
 		# Serial Open
 		try:
-			self._serial = serial.Serial(port, bps, _bs, _parity, _sb)
+			self._serial = serial.Serial(port, bps, _bs, _parity, _sb, 0)
 			self._is_open = True
 			return True
 		except:
@@ -78,9 +78,10 @@ class serial_manager:
 			return False
 
 	def close(self) -> None:
-		if self._serial.is_open:
-			print("SerialPort closed.")
-			self._serial.close()
+		if self._serial is not None:
+			if self._serial.is_open:
+				print("SerialPort closed.")
+				self._serial.close()
 		self._is_open = False
 
 	def is_open(self) -> bool:
@@ -132,92 +133,108 @@ class serial_manager:
 		無限ループで通信を続けるのでスレッド化して実施する。
 		スレッド終了後は
 		"""
-		"""
+		DEBUG = True
 		# init
-		self._serial.open()
-		self._serial.reset_input_buffer()
-		self._autoresp_rcv_pos = self._autoresp_rcv
-		# listening
-		while not exit_flag.empty():
-			recv = self._serial.read(1)
-			trans_req, frame_name = self._recv_analyze(recv, recv_data)
-			if trans_req:
-				if self._serial.out_waiting > 0:
-					self._serial.write(self._write_buf)
-					self._serial.flush()
-					resp_data.put([self._write_buf, True, frame_name], block=True, timeout=timeout)
-		"""
-		self._autoresp_rcv_pos = self._autoresp_rcv
-		count = 0
-		def func1():
-			recv = bytes.fromhex('AB')
-			time.sleep(0.1)
-			return recv
-		def func2():
-			recv = bytes.fromhex('CD')
-			time.sleep(0.1)
-			return recv
-		def func3():
-			recv = bytes.fromhex('01')
-			time.sleep(0.1)
-			return recv
-		def func4():
-			recv = bytes.fromhex('02')
-			time.sleep(0.1)
-			return recv
-		def func5():
-			recv = bytes.fromhex('EF')
-			time.sleep(0.1)
-			return recv
-		def func6():
-			recv = bytes.fromhex('89')
-			time.sleep(1)
-			return recv
-		func = [
-			func1,
-			func2,
-			func3,
-			func4,
-			func6,
-			func6,
-			func6,
-			func1,
-			func2,
-			func5,
-			func3,
-			func4,
-			func6,
-			func6,
-			func6,
-		]
 		timeout = None
-		try:
-			while exit_flag.empty():
-				recv = func[count]()
-				count += 1
-				if len(func) <= count:
-					count = 0
-				trans_req, frame_name = self._recv_analyze(recv, notify)
-				if trans_req:
-					#if self._serial.out_waiting > 0:
-					#	self._serial.write(self._write_buf)
-					#	self._serial.flush()
-					notify_msg = [ThreadNotify.COMMIT_TX_BYTES, self._write_buf, frame_name]
-					notify.put(notify_msg, block=True, timeout=timeout)
-				#print("Run: connect()")
+		self._autoresp_rcv_pos = self._autoresp_rcv
 
-			# シリアル通信切断
-			self.close()
-			# queueを空にしておく
-			while not exit_flag.empty():
-				exit_flag.get_nowait()
-			# 処理を終了することを通知
-			notify_msg = [ThreadNotify.DISCONNECTED, None, None]
-			notify.put(notify_msg, block=True, timeout=timeout)
-			print("Exit: connect()")
-		except:
-			import traceback
-			traceback.print_exc()
+		if not DEBUG:
+			if not self._serial.is_open:
+				try:
+					self._serial.open()
+				except:
+					import traceback
+					traceback.print_exc()
+					# 処理を終了することを通知
+					notify_msg = [ThreadNotify.DISCONNECTED, None, None]
+					notify.put(notify_msg, block=True, timeout=timeout)
+					print("Cannot open COM port!")
+					return
+			self._serial.reset_input_buffer()
+			# listening
+			while exit_flag.empty():
+				recv = self._serial.read(1)
+				if len(recv) > 0:
+					trans_req, frame_name = self._recv_analyze(recv, notify)
+					if trans_req:
+						#if self._serial.out_waiting > 0:
+						self._serial.write(self._write_buf)
+						self._serial.flush()
+						notify_msg = [ThreadNotify.COMMIT_TX_BYTES, self._write_buf, frame_name]
+						notify.put(notify_msg, block=True, timeout=timeout)
+		else:
+			self._autoresp_rcv_pos = self._autoresp_rcv
+			count = 0
+			def func1():
+				recv = bytes.fromhex('AB')
+				time.sleep(0.1)
+				return recv
+			def func2():
+				recv = bytes.fromhex('CD')
+				time.sleep(0.1)
+				return recv
+			def func3():
+				recv = bytes.fromhex('01')
+				time.sleep(0.1)
+				return recv
+			def func4():
+				recv = bytes.fromhex('02')
+				time.sleep(0.1)
+				return recv
+			def func5():
+				recv = bytes.fromhex('EF')
+				time.sleep(0.1)
+				return recv
+			def func6():
+				recv = bytes.fromhex('89')
+				time.sleep(1)
+				return recv
+			func = [
+				func1,
+				func2,
+				func3,
+				func4,
+				func6,
+				func6,
+				func6,
+				func1,
+				func2,
+				func5,
+				func3,
+				func4,
+				func6,
+				func6,
+				func6,
+			]
+			timeout = None
+			try:
+				while exit_flag.empty():
+					recv = func[count]()
+					count += 1
+					if len(func) <= count:
+						count = 0
+					trans_req, frame_name = self._recv_analyze(recv, notify)
+					if trans_req:
+						#if self._serial.out_waiting > 0:
+						#	self._serial.write(self._write_buf)
+						#	self._serial.flush()
+						notify_msg = [ThreadNotify.COMMIT_TX_BYTES, self._write_buf, frame_name]
+						notify.put(notify_msg, block=True, timeout=timeout)
+					#print("Run: connect()")
+
+			except:
+				import traceback
+				traceback.print_exc()
+
+		# シリアル通信切断
+		self.close()
+		# queueを空にしておく
+		while not exit_flag.empty():
+			exit_flag.get_nowait()
+		# 処理を終了することを通知
+		notify_msg = [ThreadNotify.DISCONNECTED, None, None]
+		notify.put(notify_msg, block=True, timeout=timeout)
+		print("Exit: connect()")
 
 	def _thread_msg_data(self):
 		pass

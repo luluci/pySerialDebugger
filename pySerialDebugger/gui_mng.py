@@ -2,8 +2,7 @@ import time
 import concurrent.futures
 from typing import Union, List
 import PySimpleGUI as sg
-import lib.PySimpleGUIHelper as sgh
-import serial_mng
+from . import serial_mng
 from multiprocessing import Value
 import queue
 
@@ -35,6 +34,7 @@ class gui_manager:
 
 	def _init_window(self):
 		sg.theme("Dark Blue 3")
+		self._font_family = 'Consolas'
 		leyout_serial_connect = [
 			sg.Text("SerialDebug Tool..."),
 			sg.Text("   "),
@@ -67,7 +67,7 @@ class gui_manager:
 			*self._layout_autoresp_data
 		]
 		layout_serial_auto_resp_column = [
-			[sg.Column(layout_serial_auto_resp, scrollable=True, vertical_scroll_only=True, size=(750, 100))],
+			[sg.Column(layout_serial_auto_resp, scrollable=True, vertical_scroll_only=False, size=(1100, 150))],
 			[sg.Button("Update", key="btn_autoresp_update", size=(15, 1), enable_events=True)],
 		]
 		# Define: log View
@@ -78,7 +78,7 @@ class gui_manager:
 			sg.Column(layout_serial_log_col, scrollable=False, size=(750, 20))
 		]
 		layout_serial_log = [
-			sg.Output(size=(110, 10), echo_stdout_stderr=True, font=self._gui_font)
+			sg.Output(size=(130, 10), echo_stdout_stderr=True, font=self._gui_font)
 		]
 		layout = [
 			[*leyout_serial_connect, sg.Frame("Status:", [layout_serial_status])],
@@ -339,6 +339,8 @@ class gui_manager:
 		"""
 		# 定義を読み込む
 		self._auto_response_settings()
+		# FCC処理
+		self._auto_response_update_fcc()
 		# SerialManagaerに通知
 		self._serial.autoresp_build(self._autoresp_data)
 		# GUIに落とし込む
@@ -347,27 +349,36 @@ class gui_manager:
 		for resp in self._autoresp_data:
 			if len(resp[2]) > resp_len_max:
 				resp_len_max = len(resp[2]) + 2
+				resp_len_max = resp[3]
+		# GUIパーツ定義
+		font = (self._font_family, 8)
+		di_size = (5, 1)
 		# Make Header
 		# Name,Recvは固定とする
 		# ヘッダ定義がデータ最大に足りなかったら穴埋めする
 		head_max = len(self._autoresp_head)
 		self._layout_autoresp_head = [sg.Text(self._autoresp_head[i], size=(10,1)) for i in range(0, 2)]
-		self._layout_autoresp_head.extend([sg.Input(self._autoresp_head[i], size=(6,1), disabled=True, disabled_readonly_background_color=sg.theme_background_color(), disabled_readonly_text_color=sg.theme_element_text_color()) for i in range(2, head_max)])
+		self._layout_autoresp_head.extend([sg.Input(self._autoresp_head[i], size=di_size, disabled=True, disabled_readonly_background_color=sg.theme_background_color(), disabled_readonly_text_color=sg.theme_element_text_color()) for i in range(2, head_max)])
 		if head_max < resp_len_max:
 			head_suffix = self._autoresp_head[head_max-1]
 			self._autoresp_head[head_max-1] = head_suffix + "[1]"
 			#layout_serial_auto_resp = [sg.Input(size=(10, 1), pad=(1, 1), justification='right', key=(1, j)) for j in range(10)]
-			self._layout_autoresp_head.extend( [sg.Input(head_suffix + "[" + str(i - head_max + 2) + "]", size=(6,1), disabled=True, disabled_readonly_background_color=sg.theme_background_color(), disabled_readonly_text_color=sg.theme_element_text_color()) for i in range(head_max, resp_len_max)])
+			self._layout_autoresp_head.extend( [sg.Input(head_suffix + "[" + str(i - head_max + 2) + "]", size=di_size, disabled=True, disabled_readonly_background_color=sg.theme_background_color(), disabled_readonly_text_color=sg.theme_element_text_color()) for i in range(head_max, resp_len_max)])
 		# Make Values
 		self._layout_autoresp_data = []
 		for resp in self._autoresp_data:
+			# GUI処理
 			# Add empty list
 			self._layout_autoresp_data.append([])
 			idx = len(self._layout_autoresp_data) - 1
 			# Add Name,Recv col
 			self._layout_autoresp_data[idx].extend([sg.Text(resp[i], size=(10,1)) for i in range(0, 2)])
 			# Add resp data col
-			self._layout_autoresp_data[idx].extend([sg.Input( format(byte,"02X"), size=(6,1), key=(idx,i), enable_events=True) for i,byte in enumerate(resp[2])])
+			self._layout_autoresp_data[idx].extend([sg.Input( format(byte,"02X"), size=di_size, key=(idx,i), enable_events=True) for i,byte in enumerate(resp[2])])
+			# Add empty data col
+			begin = len(resp[2])
+			end = resp[3]
+			self._layout_autoresp_data[idx].extend([sg.Input( "", size=di_size, key=(idx,i), enable_events=True) for i in range(begin, end)])
 
 	def _auto_response_update(self) -> None:
 		"""
@@ -377,8 +388,36 @@ class gui_manager:
 		for i,autoresp in enumerate(self._autoresp_data):
 			resp_data = [self._window[(i, j)].Get() for j in range(0, len(autoresp[2]))]
 			autoresp[2] = bytes.fromhex(''.join(resp_data))
+		# FCC処理
+		self._auto_response_update_fcc()
+		# GUI更新
+		self._auto_response_update_gui()
 		# SerialManagaerに通知
 		self._serial.autoresp_update(self._autoresp_data)
+
+	def _auto_response_update_fcc(self):
+		# FCC処理
+		for resp in self._autoresp_data:
+			fcc = 0
+			if resp[4] != -1:
+				for i, byte in enumerate(resp[2]):
+					if i != resp[4]-1:
+						fcc += byte
+			fcc = ((fcc % 256) ^ 0xFF) + 1
+			if len(resp[2]) < resp[4]:
+				for i in range(len(resp[2])+1, resp[4]):
+					resp[2] += (b'\0')
+				resp[2] += (fcc.to_bytes(1, 'little'))
+			else:
+				temp = bytearray(resp[2])
+				temp[resp[4]-1] = fcc
+				resp[2] = bytes(temp)
+
+	def _auto_response_update_gui(self):
+		for i, resp in enumerate(self._autoresp_data):
+			for j, byte in enumerate(resp[2]):
+				self._window[(i, j)].Update(value=format(byte, "02X"))
+
 
 	def _hex2bytes(self, hex: str) -> bytes:
 		return bytes.fromhex(hex)
@@ -395,8 +434,9 @@ class gui_manager:
 			"Name", "Recv", "ST", "XX", "XX", "XX", "XX", "YY"
 		]
 		self._autoresp_data = [
-			["Test1", hex('ABCDEF0102'), hex('aaBBccDDeeFF')],
-			["Test2", hex('ABCD0102'), hex('aa00bb11cc22dd33ee44')]
+				# 応答名称		# 自動応答対象受信データ		# 応答データ					# 応答データサイズ		# FCC位置
+			[	"Test1",		hex('ABCDEF0102'),				hex('aaBBccDDeeFF'),			18,						7			],
+			[	"Test2",		hex('ABCD0102'),				hex('aa00bb11cc22dd33ee44'),	18,						11			],
 		]
 
 if __name__=="__main__":
