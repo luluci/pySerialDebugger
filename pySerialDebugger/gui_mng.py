@@ -5,6 +5,7 @@ import PySimpleGUI as sg
 from . import serial_mng
 from multiprocessing import Value
 import queue
+import re
 
 class gui_manager:
 	DISCONNECTED, DISCONNECTING, CONNECTED, CONNECTING = (1,2,3,4)
@@ -14,7 +15,8 @@ class gui_manager:
 		self._serial = serial_mng.serial_manager()
 		# Window Info
 		self._window: sg.Window = None
-		self._gui_font = ('Consolas', 11)
+		self._font_family = 'Consolas'
+		self._gui_font = (self._font_family, 11)
 		self._init_com()
 		self._init_window()
 		self._init_event()
@@ -34,7 +36,6 @@ class gui_manager:
 
 	def _init_window(self):
 		sg.theme("Dark Blue 3")
-		self._font_family = 'Consolas'
 		leyout_serial_connect = [
 			sg.Text("SerialDebug Tool..."),
 			sg.Text("   "),
@@ -63,31 +64,33 @@ class gui_manager:
 		# Define: AutoResponse View
 		self._auto_response_init()
 		layout_serial_auto_resp = [
+			self._layout_autoresp_caption,
 			self._layout_autoresp_head,
 			*self._layout_autoresp_data
 		]
 		layout_serial_auto_resp_column = [
-			[sg.Column(layout_serial_auto_resp, scrollable=True, vertical_scroll_only=False, size=(1100, 150))],
+			[sg.Column(layout_serial_auto_resp, scrollable=True, vertical_scroll_only=False, size=(1300, 200))],
 			[sg.Button("Update", key="btn_autoresp_update", size=(15, 1), enable_events=True)],
 		]
 		# Define: log View
 		layout_serial_log_col = [
-			[sg.Text("[TxRx]"), sg.Text("CommData", size=(40,1)), sg.Text("(Detail)")]
+			[sg.Text("[TxRx]"), sg.Text("CommData", size=(60,1)), sg.Text("(Detail)")]
 		]
 		layout_serial_log_caption = [
-			sg.Column(layout_serial_log_col, scrollable=False, size=(750, 20))
+			sg.Column(layout_serial_log_col, scrollable=False, size=(800, 30))
+		]
+		layout_serial_log_output = [
+			sg.Output(size=(160, 10), echo_stdout_stderr=True, font=self._gui_font)
 		]
 		layout_serial_log = [
-			sg.Output(size=(130, 10), echo_stdout_stderr=True, font=self._gui_font)
+			layout_serial_log_caption,
+			layout_serial_log_output
 		]
 		layout = [
 			[*leyout_serial_connect, sg.Frame("Status:", [layout_serial_status])],
 			[sg.Frame("Serial Settings:", [layout_serial_settings])],
-			[sg.Text("Auto Response:")],
 			[sg.Frame("Auto Response Settings:", layout_serial_auto_resp_column)],
-			[sg.Text("Log:")],
-			[*layout_serial_log_caption],
-			[*layout_serial_log],
+			[sg.Frame("Log:", layout_serial_log)],
 		]
 		self._window = sg.Window("test window.", layout, finalize=True)
 
@@ -247,10 +250,10 @@ class gui_manager:
 					if notify == serial_mng.ThreadNotify.PUSH_RX_BYTE:
 						# ログバッファに受信データを追加
 						# ログ出力は実施しない
-						self.log_str += data.hex()
+						self.log_str += data.hex().upper()
 					elif notify == serial_mng.ThreadNotify.PUSH_RX_BYTE_AND_COMMIT:
 						# ログバッファに受信データを追加
-						self.log_str += data.hex()
+						self.log_str += data.hex().upper()
 						# ログ出力
 						self.comm_hdle_log_output("RX", self.log_str, autoresp_name)
 						# バッファクリア
@@ -261,10 +264,10 @@ class gui_manager:
 						# バッファクリア
 						self.log_str = ""
 						# ログバッファに受信データを追加
-						self.log_str += data.hex()
+						self.log_str += data.hex().upper()
 					elif notify == serial_mng.ThreadNotify.COMMIT_TX_BYTES:
 						# 送信データをログ出力
-						self.comm_hdle_log_output("TX", data.hex(), autoresp_name)
+						self.comm_hdle_log_output("TX", data.hex().upper(), autoresp_name)
 					elif notify == serial_mng.ThreadNotify.DISCONNECTED:
 						# GUIスレッドに切断を通知
 						# self_notify.put(True)
@@ -273,7 +276,7 @@ class gui_manager:
 					else:
 						pass
 				#print("Run: serial_hdle()")
-				time.sleep(0.05)
+				time.sleep(0.0001)
 			print("Exit: serial_hdle()")
 		except:
 			import traceback
@@ -281,9 +284,9 @@ class gui_manager:
 
 	def comm_hdle_log_output(self, rxtx:str, data:str, detail:str):
 		if detail == "":
-			log_temp = "[{0:2}]   {1:40}".format(rxtx, data)
+			log_temp = "[{0:2}]   {1:60}".format(rxtx, data)
 		else:
-			log_temp = "[{0:2}]   {1:40} ({2})".format(rxtx, data, detail)
+			log_temp = "[{0:2}]   {1:60} ({2})".format(rxtx, data, detail)
 		print(log_temp)
 
 	def close(self) -> None:
@@ -347,23 +350,38 @@ class gui_manager:
 		# AutoResp定義解析
 		resp_len_max = 0
 		for resp in self._autoresp_data:
+			fcc_len = 0
+			if resp[4] > -1:
+				fcc_len = 1
 			if len(resp[2]) > resp_len_max:
-				resp_len_max = len(resp[2]) + 2
-				resp_len_max = resp[3]
+				resp_len_max = len(resp[2]) + fcc_len + 2
+			if resp[3] > resp_len_max:
+				resp_len_max = resp[3] + 2
 		# GUIパーツ定義
-		font = (self._font_family, 8)
-		di_size = (5, 1)
+		font_name = (self._font_family, 10)
+		font_rx = (self._font_family, 10)
+		font_tx = (self._font_family, 9)
+		size_name = (20, 1)
+		size_rx = (20, 1)
+		size_tx = (5, 1)
+		# Make Caption
+		self._layout_autoresp_caption = []
+		self._layout_autoresp_caption.append(sg.Text(self._autoresp_caption[0], size=size_name, font=font_name))
+		self._layout_autoresp_caption.append(sg.Text(self._autoresp_caption[1], size=size_rx, font=font_rx)) 
+		self._layout_autoresp_caption.append(sg.Text(self._autoresp_caption[2], size=(50,1), font=font_tx)) 
 		# Make Header
 		# Name,Recvは固定とする
 		# ヘッダ定義がデータ最大に足りなかったら穴埋めする
 		head_max = len(self._autoresp_head)
-		self._layout_autoresp_head = [sg.Text(self._autoresp_head[i], size=(10,1)) for i in range(0, 2)]
-		self._layout_autoresp_head.extend([sg.Input(self._autoresp_head[i], size=di_size, disabled=True, disabled_readonly_background_color=sg.theme_background_color(), disabled_readonly_text_color=sg.theme_element_text_color()) for i in range(2, head_max)])
+		self._layout_autoresp_head = []
+		self._layout_autoresp_head.append(sg.Text(self._autoresp_head[0], size=size_name, font=font_name))
+		self._layout_autoresp_head.append(sg.Text(self._autoresp_head[1], size=size_rx, font=font_rx)) 
+		self._layout_autoresp_head.extend([sg.Input(self._autoresp_head[i], size=size_tx, font=font_tx, disabled=True, disabled_readonly_background_color=sg.theme_background_color(), disabled_readonly_text_color=sg.theme_element_text_color()) for i in range(2, head_max)])
 		if head_max < resp_len_max:
 			head_suffix = self._autoresp_head[head_max-1]
 			self._autoresp_head[head_max-1] = head_suffix + "[1]"
 			#layout_serial_auto_resp = [sg.Input(size=(10, 1), pad=(1, 1), justification='right', key=(1, j)) for j in range(10)]
-			self._layout_autoresp_head.extend( [sg.Input(head_suffix + "[" + str(i - head_max + 2) + "]", size=di_size, disabled=True, disabled_readonly_background_color=sg.theme_background_color(), disabled_readonly_text_color=sg.theme_element_text_color()) for i in range(head_max, resp_len_max)])
+			self._layout_autoresp_head.extend( [sg.Input(head_suffix + "[" + str(i - head_max + 2) + "]", size=size_tx, font=font_tx, disabled=True, disabled_readonly_background_color=sg.theme_background_color(), disabled_readonly_text_color=sg.theme_element_text_color()) for i in range(head_max, resp_len_max)])
 		# Make Values
 		self._layout_autoresp_data = []
 		for resp in self._autoresp_data:
@@ -372,21 +390,31 @@ class gui_manager:
 			self._layout_autoresp_data.append([])
 			idx = len(self._layout_autoresp_data) - 1
 			# Add Name,Recv col
-			self._layout_autoresp_data[idx].extend([sg.Text(resp[i], size=(10,1)) for i in range(0, 2)])
+			self._layout_autoresp_data[idx].append(sg.Text(resp[0], size=size_name, font=font_name))
+			self._layout_autoresp_data[idx].append(sg.Text(resp[1].hex().upper(), size=size_rx, font=font_rx))
 			# Add resp data col
-			self._layout_autoresp_data[idx].extend([sg.Input( format(byte,"02X"), size=di_size, key=(idx,i), enable_events=True) for i,byte in enumerate(resp[2])])
+			self._layout_autoresp_data[idx].extend([sg.Input( format(byte,"02X"), size=size_tx, font=font_tx, key=(idx,i), enable_events=True) for i,byte in enumerate(resp[2])])
 			# Add empty data col
 			begin = len(resp[2])
 			end = resp[3]
-			self._layout_autoresp_data[idx].extend([sg.Input( "", size=di_size, key=(idx,i), enable_events=True) for i in range(begin, end)])
+			self._layout_autoresp_data[idx].extend([sg.Input( "", size=size_tx, font=font_tx, key=(idx,i), enable_events=True) for i in range(begin, end)])
 
 	def _auto_response_update(self) -> None:
 		"""
 		GUI上で更新された自動応答設定を反映する
 		"""
 		# self._autoresp_data を書き換え
+		hex_ptn = re.compile(r'[0-9a-fA-F]{2}')
 		for i,autoresp in enumerate(self._autoresp_data):
-			resp_data = [self._window[(i, j)].Get() for j in range(0, len(autoresp[2]))]
+			# GUIから設定値を取得
+			resp_data = []
+			for j in range(0, len(autoresp[2])):
+				# 入力テキストをゼロ埋めで2桁にする
+				data = self._window[(i, j)].Get().zfill(2)
+				# 16進数文字列でなかったら 00 に強制置換
+				if hex_ptn.match(data) is None:
+					data = "00"
+				resp_data.append(data)
 			autoresp[2] = bytes.fromhex(''.join(resp_data))
 		# FCC処理
 		self._auto_response_update_fcc()
@@ -399,18 +427,21 @@ class gui_manager:
 		# FCC処理
 		for resp in self._autoresp_data:
 			fcc = 0
+			fcc_begin = resp[5]
+			fcc_end = resp[6]
+			fcc_pos = resp[4]
 			if resp[4] != -1:
-				for i, byte in enumerate(resp[2]):
-					if i != resp[4]-1:
-						fcc += byte
+				for i in range(fcc_begin, fcc_end+1):
+					if i != fcc_pos:
+						fcc += resp[2][i]
 			fcc = ((fcc % 256) ^ 0xFF) + 1
-			if len(resp[2]) < resp[4]:
-				for i in range(len(resp[2])+1, resp[4]):
+			if len(resp[2])-1 < resp[4]:
+				for i in range(len(resp[2]), resp[4]):
 					resp[2] += (b'\0')
 				resp[2] += (fcc.to_bytes(1, 'little'))
 			else:
 				temp = bytearray(resp[2])
-				temp[resp[4]-1] = fcc
+				temp[fcc_pos] = fcc
 				resp[2] = bytes(temp)
 
 	def _auto_response_update_gui(self):
@@ -430,13 +461,17 @@ class gui_manager:
 		"""
 		hex = self._hex2bytes
 
+		self._autoresp_caption = [
+			"AutoResponse", "", "ResponseData"
+		]
 		self._autoresp_head = [
 			"Name", "Recv", "ST", "XX", "XX", "XX", "XX", "YY"
 		]
 		self._autoresp_data = [
-				# 応答名称		# 自動応答対象受信データ		# 応答データ					# 応答データサイズ		# FCC位置
-			[	"Test1",		hex('ABCDEF0102'),				hex('aaBBccDDeeFF'),			18,						7			],
-			[	"Test2",		hex('ABCD0102'),				hex('aa00bb11cc22dd33ee44'),	18,						11			],
+				# 応答			# 自動応答対象					# 応答データ定義							# FCC定義(idx=0開始)
+				# 名称			# 受信データパターン			# 送信HEX						# サイズ	# 挿入位置	# 計算開始位置	# 計算終了位置
+			[	"Test1",		hex('ABCDEF0102'),				hex('aaBBccDDeeFF'),			18,			6,			2,				4,					],
+			[	"Test2",		hex('ABCD0102'),				hex('aa00bb11cc22dd33ee44'),	18,			10,			6,				7,					],
 		]
 
 if __name__=="__main__":
