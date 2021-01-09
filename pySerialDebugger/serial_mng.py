@@ -27,6 +27,9 @@ class serial_manager:
 		self._serial: serial.Serial = None
 		self._is_open: bool = False
 		self._write_buf: bytes = None
+		# フレーム受信中に手動送信することを防ぐ
+		# 前回受信から特定時間経過するまで手動送信しない
+		self._send_tx_delay: int = 0
 
 	def __del__(self) -> None:
 		self.close()
@@ -131,7 +134,14 @@ class serial_manager:
 		for resp in autoresp_data:
 			self._autoresp_resp[resp[0]].resp = resp[2]
 
-	def connect(self, recv_notify: queue.Queue, send_notify: queue.Queue) -> None:
+	def sendopt_txdelay_update(self, time: int) -> None:
+		"""
+		@param time マイクロ病秒 
+		"""
+		# ナノ秒に直しておく
+		self._send_tx_delay = time * 1000
+
+	def connect(self, recv_notify: queue.Queue, send_notify: queue.Queue, exit: queue.Queue) -> None:
 		"""
 		Serial open and communicate.
 		無限ループで通信を続けるのでスレッド化して実施する。
@@ -141,6 +151,7 @@ class serial_manager:
 		# init
 		timeout = None
 		self._autoresp_rcv_pos = self._autoresp_rcv
+		self._time_stamp: int = 0
 
 		if not DEBUG:
 			if not self._serial.is_open:
@@ -150,30 +161,38 @@ class serial_manager:
 					import traceback
 					traceback.print_exc()
 					# 処理を終了することを通知
-					notify_msg = [ThreadNotify.DISCONNECTED, None, None]
+					notify_msg = [ThreadNotify.DISCONNECTED, None, None, None]
 					send_notify.put(notify_msg, block=True, timeout=timeout)
 					print("Cannot open COM port!")
 					return
 			self._serial.reset_input_buffer()
 			# listening
-			while True:
+			while exit.empty():
 				# シリアル通信バッファチェック
 				recv = self._serial.read(1)
 				if len(recv) > 0:
+					# 受信時の現在時間取得
+					self._time_stamp = time.perf_counter_ns()
+					# 受信解析実行
 					trans_req, frame_name = self._recv_analyze(recv, send_notify)
 					if trans_req:
 						#if self._serial.out_waiting > 0:
 						self._serial.write(self._write_buf)
 						self._serial.flush()
-						notify_msg = [ThreadNotify.COMMIT_TX_BYTES, self._write_buf, frame_name]
+						notify_msg = [ThreadNotify.COMMIT_TX_BYTES, self._write_buf, frame_name, self._time_stamp]
 						send_notify.put(notify_msg, block=True, timeout=timeout)
 				# GUIからの通知チェック
 				if not recv_notify.empty():
-					msg, data = recv_notify.get_nowait()
-					if msg == ThreadNotify.TX_BYTES:
-						pass
-					if msg == ThreadNotify.EXIT_TASK:
-						break
+					curr_timestamp = time.perf_counter_ns()
+					if (curr_timestamp - self._time_stamp) >= self._send_tx_delay:
+						msg, data, name = recv_notify.get_nowait()
+						if msg == ThreadNotify.TX_BYTES:
+							self._serial.write(data)
+							self._serial.flush()
+							notify_msg = [ThreadNotify.COMMIT_TX_BYTES, self._write_buf, name, self._time_stamp]
+							send_notify.put(notify_msg, block=True, timeout=timeout)
+						if msg == ThreadNotify.EXIT_TASK:
+							break
 		else:
 			self._autoresp_rcv_pos = self._autoresp_rcv
 			count = 0
@@ -220,7 +239,9 @@ class serial_manager:
 			]
 			timeout = None
 			try:
-				while True:
+				while exit.empty():
+					#
+					self._time_stamp = time.perf_counter_ns()
 					recv = func[count]()
 					count += 1
 					if len(func) <= count:
@@ -230,14 +251,17 @@ class serial_manager:
 						#if self._serial.out_waiting > 0:
 						#	self._serial.write(self._write_buf)
 						#	self._serial.flush()
-						notify_msg = [ThreadNotify.COMMIT_TX_BYTES, self._write_buf, frame_name]
+						notify_msg = [ThreadNotify.COMMIT_TX_BYTES, self._write_buf, frame_name, self._time_stamp]
 						send_notify.put(notify_msg, block=True, timeout=timeout)
 					if not recv_notify.empty():
-						msg, data = recv_notify.get_nowait()
-						if msg == ThreadNotify.TX_BYTES:
-							pass
-						if msg == ThreadNotify.EXIT_TASK:
-							break
+						curr_timestamp = time.perf_counter_ns()
+						if (curr_timestamp - self._time_stamp) >= self._send_tx_delay:
+							msg, data, name = recv_notify.get_nowait()
+							if msg == ThreadNotify.TX_BYTES:
+								notify_msg = [ThreadNotify.COMMIT_TX_BYTES, data, name, self._time_stamp]
+								send_notify.put(notify_msg, block=True, timeout=timeout)
+							if msg == ThreadNotify.EXIT_TASK:
+								break
 					#print("Run: connect()")
 
 			except:
@@ -247,10 +271,10 @@ class serial_manager:
 		# シリアル通信切断
 		self.close()
 		# queueを空にしておく
-		while not recv_notify.empty():
-			recv_notify.get_nowait()
+		while not exit.empty():
+			exit.get_nowait()
 		# 処理を終了することを通知
-		notify_msg = [ThreadNotify.DISCONNECTED, None, None]
+		notify_msg = [ThreadNotify.DISCONNECTED, None, None, None]
 		send_notify.put(notify_msg, block=True, timeout=timeout)
 		print("Exit: connect()")
 
@@ -277,12 +301,12 @@ class serial_manager:
 			# OK + resp_ok=False + frame_end=True  -> 自動応答解析継続中だが、解析テーブルの末尾に到達しているので解析終了
 			# OK + resp_ok=False + frame_end=False -> 自動応答解析継続中
 			if resp_ok:
-				notify_msg = [ThreadNotify.PUSH_RX_BYTE_AND_COMMIT, data, frame_name]
+				notify_msg = [ThreadNotify.PUSH_RX_BYTE_AND_COMMIT, data, frame_name, self._time_stamp]
 			else:
 				if frame_end:
-					notify_msg = [ThreadNotify.PUSH_RX_BYTE_AND_COMMIT, data, frame_name]
+					notify_msg = [ThreadNotify.PUSH_RX_BYTE_AND_COMMIT, data, frame_name, self._time_stamp]
 				else:
-					notify_msg = [ThreadNotify.PUSH_RX_BYTE, data, frame_name]
+					notify_msg = [ThreadNotify.PUSH_RX_BYTE, data, frame_name, self._time_stamp]
 		else:
 			# 受信解析NG
 			resp_ok, frame_end, frame_name = self._recv_analyze_ng(data)
@@ -291,10 +315,10 @@ class serial_manager:
 			if resp_ok:
 				# 既存データはノイズとしてアウトプット
 				# 今回データは現時点でOKなのでアウトプットしない
-				notify_msg = [ThreadNotify.COMMIT_AND_PUSH_RX_BYTE, data, frame_name]
+				notify_msg = [ThreadNotify.COMMIT_AND_PUSH_RX_BYTE, data, frame_name, self._time_stamp]
 			else:
 				# 既存データ＋今回データはノイズとしてアウトプット
-				notify_msg = [ThreadNotify.PUSH_RX_BYTE_AND_COMMIT, data, frame_name]
+				notify_msg = [ThreadNotify.PUSH_RX_BYTE_AND_COMMIT, data, frame_name, self._time_stamp]
 		# 通知を実施
 		notify.put(notify_msg, block=True, timeout=timeout)
 		return [resp_ok,frame_name]

@@ -2,6 +2,7 @@ import time
 import concurrent.futures
 from typing import Union, List
 import PySimpleGUI as sg
+from PySimpleGUI.PySimpleGUI import Input
 from . import serial_mng
 from multiprocessing import Value
 import queue
@@ -19,10 +20,13 @@ class gui_manager:
 		self._header_font = (self._header_font_family, 11)
 		self._data_font_family = 'Consolas'
 		self._gui_font = (self._data_font_family, 11)
+		self._log_font = (self._data_font_family, 10)
 		self._init_com()
 		self._init_window()
 		self._init_event()
 		self._gui_conn_state = self.DISCONNECTED
+		# sendオプション更新
+		self._sendopt_update()
 
 	def __del__(self) -> None:
 		self.close()
@@ -81,23 +85,35 @@ class gui_manager:
 			self._layout_send_head,
 			*self._layout_send_data
 		]
+		layout_serial_send_option = [
+			[
+				sg.Text("", font=self._gui_font),
+				sg.Input("", key="sendopt_tx_delay", size=(15, 1), font=self._log_font, tooltip="フレーム受信中の間に送信することを防ぐ"),
+				sg.Text("マイクロ秒間受信が無ければ送信する", font=self._gui_font),
+				sg.Button("Update", key="btn_sendopt_update", size=(15, 1), enable_events=True),
+			],
+		]
 		layout_serial_send_column = [
 			[sg.Column(layout_serial_send, scrollable=True, vertical_scroll_only=False, size=(1300, 200))],
-#			[sg.Button("Update", key="btn_autoresp_update", size=(15, 1), enable_events=True)],
+			[sg.Frame("Send Option:", layout_serial_send_option)],
 		]
 		# Define: log View
 		layout_serial_log_col = [
-			[sg.Text("[TxRx]"), sg.Text("CommData", size=(60,1)), sg.Text("(Detail)")]
+			[
+				sg.Text("[HH:MM:SS.mmm.uuu][TxRx]", font=self._log_font),
+				sg.Text("CommData", size=(52,1)),
+				sg.Text("(Detail)")
+			]
 		]
 		layout_serial_log_caption = [
 			sg.Column(layout_serial_log_col, scrollable=False, size=(800, 30))
 		]
 		layout_serial_log_output = [
-			sg.Output(size=(160, 10), echo_stdout_stderr=True, font=self._gui_font)
+			sg.Output(size=(160, 10), echo_stdout_stderr=True, font=self._log_font)
 		]
 		layout_serial_log = [
 			layout_serial_log_caption,
-			layout_serial_log_output
+			layout_serial_log_output,
 		]
 		layout = [
 			[*leyout_serial_connect, sg.Frame("Status:", [layout_serial_status])],
@@ -118,6 +134,7 @@ class gui_manager:
 			"btn_autoresp_update": self._hdl_btn_autoresp_update,
 			# Button: Send
 			"btn_send": self._hdl_btn_send,
+			"btn_sendopt_update": self._hdl_btn_sendopt_update,
 			# Script Write Event
 			"_swe_disconnected": self._hdl_swe_disconnected,
 		}
@@ -148,7 +165,7 @@ class gui_manager:
 			if self._serial_open():
 				# オープンに成功したら
 				# スレッドにて通信制御を開始
-				self._future_serial = self._executer.submit(self._serial.connect, self._notify_to_serial, self._notify_from_serial)
+				self._future_serial = self._executer.submit(self._serial.connect, self._notify_to_serial, self._notify_from_serial, self._exit_flag_serial)
 				# GUI更新
 				self._conn_btn_hdl.Update(text="Disconnect")
 				self._conn_status_hdl.Update(value=self._get_com_info())
@@ -172,7 +189,8 @@ class gui_manager:
 				print("接続済みのはずなのにスレッドが非稼働中。バグでは？")
 			else:
 				# スレッドに終了通知
-				self._notify_to_serial.put([serial_mng.ThreadNotify.EXIT_TASK, None])
+				#self._notify_to_serial.put([serial_mng.ThreadNotify.EXIT_TASK, None, None])
+				self._exit_flag_serial.put(True)
 			# 切断中に移行
 			self._gui_conn_state = self.DISCONNECTING
 			# GUI操作
@@ -220,16 +238,20 @@ class gui_manager:
 		self._auto_response_update()
 
 	def _hdl_btn_send(self, values, idx):
-		self._send_update(idx)
+		self._req_send_bytes(idx)
+
+	def _hdl_btn_sendopt_update(self, values):
+		self._sendopt_update()
 
 	def exe(self):
 		# スレッド管理
 		self._future_comm_hdle = None
 		self._future_serial = None
 		# スレッド間通信用キュー
+		self._exit_flag_serial = queue.Queue(10)
 		self._notify_to_serial = queue.Queue(10)
-		self._exit_flag_comm_hdle = queue.Queue(10)
 		self._notify_from_serial = queue.Queue(10)
+		self._exit_flag_comm_hdle = queue.Queue(10)
 		self._comm_hdle_notify = queue.Queue(10)
 		# (1) Windows イベントハンドラ
 		# (2) シリアル通信
@@ -251,7 +273,8 @@ class gui_manager:
 				self._events[t_ev](values, idx)
 			if event is None:
 				# 各スレッドに終了通知
-				self._notify_to_serial.put([serial_mng.ThreadNotify.EXIT_TASK, None])
+				#self._notify_to_serial.put([serial_mng.ThreadNotify.EXIT_TASK, None, None])
+				self._exit_flag_serial.put(True)
 				self._exit_flag_comm_hdle.put(True)
 				# queueを空にしておく
 				while not self._notify_from_serial.empty():
@@ -266,7 +289,7 @@ class gui_manager:
 			while exit_flag.empty():
 				if not serial_notify.empty():
 					# queueからデータ取得
-					notify, data, autoresp_name = serial_notify.get_nowait()
+					notify, data, autoresp_name, timestamp = serial_notify.get_nowait()
 					# 通知に応じて処理実施
 					if notify == serial_mng.ThreadNotify.PUSH_RX_BYTE:
 						# ログバッファに受信データを追加
@@ -276,19 +299,19 @@ class gui_manager:
 						# ログバッファに受信データを追加
 						self.log_str += data.hex().upper()
 						# ログ出力
-						self.comm_hdle_log_output("RX", self.log_str, autoresp_name)
+						self.comm_hdle_log_output("RX", self.log_str, autoresp_name, timestamp)
 						# バッファクリア
 						self.log_str = ""
 					elif notify == serial_mng.ThreadNotify.COMMIT_AND_PUSH_RX_BYTE:
 						# ログ出力
-						self.comm_hdle_log_output("RX", self.log_str, autoresp_name)
+						self.comm_hdle_log_output("RX", self.log_str, autoresp_name, timestamp)
 						# バッファクリア
 						self.log_str = ""
 						# ログバッファに受信データを追加
 						self.log_str += data.hex().upper()
 					elif notify == serial_mng.ThreadNotify.COMMIT_TX_BYTES:
 						# 送信データをログ出力
-						self.comm_hdle_log_output("TX", data.hex().upper(), autoresp_name)
+						self.comm_hdle_log_output("TX", data.hex().upper(), autoresp_name, timestamp)
 					elif notify == serial_mng.ThreadNotify.DISCONNECTED:
 						# GUIスレッドに切断を通知
 						# self_notify.put(True)
@@ -303,11 +326,19 @@ class gui_manager:
 			import traceback
 			traceback.print_exc()
 
-	def comm_hdle_log_output(self, rxtx:str, data:str, detail:str):
+	def comm_hdle_log_output(self, rxtx:str, data:str, detail:str, timestamp:int):
+		# タイムスタンプ整形
+		ts_next, ts_ns = divmod(timestamp, 1000)	# nano sec
+		ts_next, ts_us = divmod(ts_next, 1000)		# micro sec
+		ts_next, ts_ms = divmod(ts_next, 1000)		# milli sec
+		ts_next, ts_sec = divmod(ts_next, 60)		# sec
+		ts_hour, ts_min = divmod(ts_next, 60)		# minute
+		ts_str = "{0:02}:{1:02}:{2:02}.{3:03}.{4:03}".format(ts_hour, ts_min, ts_sec, ts_ms, ts_us)
+		# ログ作成
 		if detail == "":
-			log_temp = "[{0:2}]   {1:60}".format(rxtx, data)
+			log_temp = "[{0}] [{1:2}]    {2:60}".format(ts_str, rxtx, data)
 		else:
-			log_temp = "[{0:2}]   {1:60} ({2})".format(rxtx, data, detail)
+			log_temp = "[{0}] [{1:2}]    {2:60} ({3})".format(ts_str, rxtx, data, detail)
 		print(log_temp)
 
 	def close(self) -> None:
@@ -538,7 +569,7 @@ class gui_manager:
 			for j, byte in enumerate(resp[2]):
 				self._window[(i, j)].Update(value=format(byte, "02X"))
 
-	def _send_update(self, idx:int) -> None:
+	def _req_send_bytes(self, idx:int) -> None:
 		"""
 		GUI上で更新された自動応答設定を反映する
 		"""
@@ -553,13 +584,18 @@ class gui_manager:
 			if hex_ptn.match(data) is None:
 				data = "00"
 			send_data.append(data)
-		self._send_data[idx][1] = bytes.fromhex(''.join(send_data))
-		# FCC処理
-		self._send_update_fcc(idx)
-		# GUI更新
-		self._send_update_gui(idx)
-		# SerialManagaerに通知
-		#self._serial.autoresp_update(self._autoresp_data)
+		# データが有効なときだけ送信処理
+		if len(send_data) > 0:
+			self._send_data[idx][1] = bytes.fromhex(''.join(send_data))
+			# FCC処理
+			self._send_update_fcc(idx)
+			# GUI更新
+			self._send_update_gui(idx)
+			# SerialManagaerに通知
+			if self._notify_to_serial.full():
+				print("Queue is full, send req denied.")
+			else:
+				self._notify_to_serial.put([serial_mng.ThreadNotify.TX_BYTES, self._send_data[idx][1], self._send_data[idx][0]])
 
 	def _send_update_fcc_all(self):
 		# FCC処理
@@ -594,6 +630,15 @@ class gui_manager:
 	def _send_update_gui(self, idx:int):
 		for i,byte in enumerate(self._send_data[idx][1]):
 			self._window[("send", idx, i)].Update(value=format(byte, "02X"))
+
+	def _sendopt_update(self):
+		time_ptn = re.compile(r'[0-9]+')
+		time = self._window["sendopt_tx_delay"].Get()
+		if time_ptn.match(time) is None:
+			time = 0
+			self._window["sendopt_tx_delay"].Update(value="0")
+		self._sendopt_tx_delay = int(time)
+		self._serial.sendopt_txdelay_update(self._sendopt_tx_delay)
 
 	def _calc_fcc(self, data:bytes, begin:int, end:int, pos:int) -> int:
 		"""
@@ -652,6 +697,7 @@ class gui_manager:
 			[	"Manual",			hex(''),					18,			17,			4,				7,				],
 			[	"TestSend1",		hex('00112233'),			-1,			4,			0,				3,				],
 			[	"TestSend2",		hex('00'),					5,			-1,			0,				3,				],
+			[	"TestSend3",		hex(''),					0,			-1,			0,				3,				],
 		]
 
 if __name__=="__main__":
