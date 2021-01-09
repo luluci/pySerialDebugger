@@ -1,10 +1,10 @@
 import time
 import concurrent.futures
-from typing import Union, List
+from typing import Any, Union, List
 import PySimpleGUI as sg
 from PySimpleGUI.PySimpleGUI import Input
 from . import serial_mng
-from multiprocessing import Value
+from multiprocessing import Array, Value
 import queue
 import re
 import enum
@@ -421,47 +421,61 @@ class gui_manager:
 			if resp[3] > resp_len_max:
 				resp_len_max = resp[3] + 2
 		# GUIパーツ定義
-		font_name = (self._header_font_family, 10)
-		font_rx = (self._data_font_family, 10)
-		font_tx = (self._data_font_family, 9)
-		size_name = (20, 1)
-		size_rx = (20, 1)
-		size_tx = (5, 1)
+		self._font_name = (self._header_font_family, 10)
+		self._font_rx = (self._data_font_family, 10)
+		self._font_tx = (self._data_font_family, 9)
+		self._size_name = (20, 1)
+		self._size_rx = (20, 1)
+		self._size_tx = (5, 1)
+		self._pad_tx = ((0, 0), (0, 0))
 		# Make Caption
 		self._layout_autoresp_caption = []
-		self._layout_autoresp_caption.append(sg.Text(self._autoresp_caption[0], size=size_name, font=font_name))
-		self._layout_autoresp_caption.append(sg.Text(self._autoresp_caption[1], size=size_rx, font=font_name)) 
-		self._layout_autoresp_caption.append(sg.Text(self._autoresp_caption[2], size=size_name, font=font_name)) 
+		self._layout_autoresp_caption.append(sg.Text(self._autoresp_caption[0], size=self._size_name, font=self._font_name))
+		self._layout_autoresp_caption.append(sg.Text(self._autoresp_caption[1], size=self._size_rx, font=self._font_name)) 
+		self._layout_autoresp_caption.append(sg.Text(self._autoresp_caption[2], size=self._size_name, font=self._font_name)) 
 		# Make Header
 		# Name,Recvは固定とする
 		# ヘッダ定義がデータ最大に足りなかったら穴埋めする
 		head_max = len(self._autoresp_head)
 		self._layout_autoresp_head = []
-		self._layout_autoresp_head.append(sg.Text(self._autoresp_head[0], size=size_name, font=font_name))
-		self._layout_autoresp_head.append(sg.Text(self._autoresp_head[1], size=size_rx, font=font_rx)) 
+		self._layout_autoresp_head.append(sg.Text(self._autoresp_head[0], size=self._size_name, font=self._font_name))
+		self._layout_autoresp_head.append(sg.Text(self._autoresp_head[1], size=self._size_rx, font=self._font_rx)) 
 		head_suffix = ""
 		if head_max < resp_len_max:
 			head_suffix = self._autoresp_head[head_max-1]
 			self._autoresp_head[head_max-1] = head_suffix + "[1]"
-		self._layout_autoresp_head.extend([sg.Input(self._autoresp_head[i], size=size_tx, font=font_tx, disabled=True, disabled_readonly_background_color=sg.theme_background_color(), disabled_readonly_text_color=sg.theme_element_text_color()) for i in range(2, head_max)])
+		self._layout_autoresp_head.extend([sg.Input(self._autoresp_head[i], size=self._size_tx, font=self._font_tx, disabled=True, pad=self._pad_tx, disabled_readonly_background_color=sg.theme_background_color(), disabled_readonly_text_color=sg.theme_element_text_color()) for i in range(2, head_max)])
 		if head_max < resp_len_max:
-			self._layout_autoresp_head.extend( [sg.Input(head_suffix + "[" + str(i - head_max + 2) + "]", size=size_tx, font=font_tx, disabled=True, disabled_readonly_background_color=sg.theme_background_color(), disabled_readonly_text_color=sg.theme_element_text_color()) for i in range(head_max, resp_len_max)])
+			self._layout_autoresp_head.extend( [sg.Input(head_suffix + "[" + str(i - head_max + 2) + "]", size=self._size_tx, font=self._font_tx, disabled=True, pad=self._pad_tx, disabled_readonly_background_color=sg.theme_background_color(), disabled_readonly_text_color=sg.theme_element_text_color()) for i in range(head_max, resp_len_max)])
 		# Make Values
 		self._layout_autoresp_data = []
 		for resp in self._autoresp_data:
 			# GUI処理
 			# Add empty list
-			self._layout_autoresp_data.append([])
-			idx = len(self._layout_autoresp_data) - 1
+			idx = len(self._layout_autoresp_data)
+			parts = []
 			# Add Name,Recv col
-			self._layout_autoresp_data[idx].append(sg.Text(resp[0], size=size_name, font=font_name))
-			self._layout_autoresp_data[idx].append(sg.Text(resp[1].hex().upper(), size=size_rx, font=font_rx))
+			parts.append(sg.Text(resp[DataConf.NAME], size=self._size_name, font=self._font_name))
+			parts.append(sg.Text(resp[DataConf.RX].hex().upper(), size=self._size_rx, font=self._font_rx))
 			# Add resp data col
-			self._layout_autoresp_data[idx].extend([sg.Input( format(byte,"02X"), size=size_tx, font=font_tx, key=(idx,i), enable_events=False) for i,byte in enumerate(resp[2])])
-			# Add empty data col
-			begin = len(resp[2])
-			end = resp[3]
-			self._layout_autoresp_data[idx].extend([sg.Input( "", size=size_tx, font=font_tx, key=(idx,i), enable_events=False) for i in range(begin, end)])
+			if isinstance(resp[DataConf.TX], bytes):
+				parts.extend(self._auto_response_init_value_bytes(idx, resp[DataConf.TX], resp[DataConf.TX_SIZE]))
+			if isinstance(resp[DataConf.TX], list):
+				pass
+			self._layout_autoresp_data.append(parts)
+
+	def _auto_response_init_value_bytes(self, idx, tx_bytes, size) -> List[Any]:
+		result = []
+		# Add resp data col
+		result.extend([sg.Input(format(byte, "02X"), size=self._size_tx, font=self._font_tx, key=(idx, i), pad=self._pad_tx, enable_events=False) for i, byte in enumerate(tx_bytes)])
+		# Add empty data col
+		begin = len(tx_bytes)
+		end = size
+		result.extend([sg.Input( "", size=self._size_tx, font=self._font_tx, key=(idx,i), pad=self._pad_tx, enable_events=False) for i in range(begin, end)])
+		return result
+
+	def _auto_response_init_value_list(self, idx, tx_list, size) -> List[Any]:
+		result = []
 
 	def _send_init(self) -> None:
 		# 定義を読み込む
@@ -508,9 +522,9 @@ class gui_manager:
 		if head_max < send_col_num:
 			head_suffix = self._send_head[head_max-1]
 			self._send_head[head_max-1] = head_suffix + "[1]"
-		self._layout_send_head.extend([sg.Input(self._send_head[i], size=size_tx, font=font_tx, disabled=True, disabled_readonly_background_color=sg.theme_background_color(), disabled_readonly_text_color=sg.theme_element_text_color()) for i in range(1, head_max)])
+		self._layout_send_head.extend([sg.Input(self._send_head[i], size=size_tx, font=font_tx, disabled=True, pad=self._pad_tx, disabled_readonly_background_color=sg.theme_background_color(), disabled_readonly_text_color=sg.theme_element_text_color()) for i in range(1, head_max)])
 		if head_max < send_col_num:
-			self._layout_send_head.extend( [sg.Input(head_suffix + "[" + str(i - head_max + 2) + "]", size=size_tx, font=font_tx, disabled=True, disabled_readonly_background_color=sg.theme_background_color(), disabled_readonly_text_color=sg.theme_element_text_color()) for i in range(head_max, send_col_num)])
+			self._layout_send_head.extend( [sg.Input(head_suffix + "[" + str(i - head_max + 2) + "]", size=size_tx, font=font_tx, disabled=True, pad=self._pad_tx, disabled_readonly_background_color=sg.theme_background_color(), disabled_readonly_text_color=sg.theme_element_text_color()) for i in range(head_max, send_col_num)])
 		# Make Values
 		self._layout_send_data = []
 		for idx, resp in enumerate(self._send_data):
@@ -522,11 +536,11 @@ class gui_manager:
 			# Add Name col
 			self._layout_send_data[idx].append(sg.Text(resp[DataConf.NAME], size=size_name, font=font_name))
 			# Add resp data col
-			self._layout_send_data[idx].extend([sg.Input( format(byte,"02X"), size=size_tx, font=font_tx, key=("send",idx,i), enable_events=False) for i,byte in enumerate(resp[DataConf.TX])])
+			self._layout_send_data[idx].extend([sg.Input( format(byte,"02X"), size=size_tx, font=font_tx, key=("send",idx,i), pad=self._pad_tx, enable_events=False) for i,byte in enumerate(resp[DataConf.TX])])
 			# Add empty data col
 			begin = len(resp[DataConf.TX])
 			end = resp[DataConf.TX_SIZE]
-			self._layout_send_data[idx].extend([sg.Input( "", size=size_tx, font=font_tx, key=("send",idx,i), enable_events=False) for i in range(begin, end)])
+			self._layout_send_data[idx].extend([sg.Input( "", size=size_tx, font=font_tx, key=("send",idx,i), pad=self._pad_tx, enable_events=False) for i in range(begin, end)])
 
 
 	def _auto_response_update(self) -> None:
@@ -694,6 +708,7 @@ class gui_manager:
 			[	"Test1",		hex('ABCDEF0102'),				hex('aaBBccDDeeFF'),			18,			6,			2,				4,					],
 			[	"Test2",		hex('ABCD0102'),				hex('aa00bb11cc22dd33ee44'),	18,			12,			6,				7,					],
 			[	"Test3",		hex('ABCD0102'),				hex('aa00bb11cc22dd33ee44'),	18,			-1,			0,				9,					],
+#			[	"Test4",		hex('ABCD0102'),				[ hex('aa'), {'ON':1, 'OFF':0} ],	10,			-1,			0,				9,					],
 		]
 
 	def _send_settings(self) -> None:
