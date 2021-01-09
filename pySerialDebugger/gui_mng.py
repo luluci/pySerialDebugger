@@ -43,7 +43,6 @@ class gui_manager:
 	def _init_window(self):
 		sg.theme("Dark Blue 3")
 		leyout_serial_connect = [
-			sg.Text("SerialDebug Tool..."),
 			sg.Text("   "),
 			sg.Button("Connect", key="btn_connect", size=(15,1), enable_events=True),
 		]
@@ -126,7 +125,7 @@ class gui_manager:
 			]])],
 			[sg.Frame("Log:", layout_serial_log)],
 		]
-		self._window = sg.Window("test window.", layout, finalize=True)
+		self._window = sg.Window("pySerialDebugger", layout, finalize=True)
 
 	def _init_event(self) -> None:
 		# clear events
