@@ -118,8 +118,12 @@ class gui_manager:
 		layout = [
 			[*leyout_serial_connect, sg.Frame("Status:", [layout_serial_status])],
 			[sg.Frame("Serial Settings:", [layout_serial_settings])],
-			[sg.Frame("Auto Response Settings:", layout_serial_auto_resp_column)],
-			[sg.Frame("Manual Send Settings:", layout_serial_send_column)],
+			#[sg.Frame("Auto Response Settings:", layout_serial_auto_resp_column)],
+			#[sg.Frame("Manual Send Settings:", layout_serial_send_column)],
+			[sg.TabGroup([[
+				sg.Tab('Auto Response Settings', layout_serial_auto_resp_column),
+				sg.Tab('Manual Send Settings', layout_serial_send_column)
+			]])],
 			[sg.Frame("Log:", layout_serial_log)],
 		]
 		self._window = sg.Window("test window.", layout, finalize=True)
