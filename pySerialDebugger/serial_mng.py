@@ -7,6 +7,8 @@ import queue
 import time
 import enum
 
+DEBUG = True
+
 class ThreadNotify(enum.Enum):
 	"""
 	スレッド間通信メッセージ
@@ -147,7 +149,6 @@ class serial_manager:
 		無限ループで通信を続けるのでスレッド化して実施する。
 		スレッド終了後は
 		"""
-		DEBUG = True
 		# init
 		timeout = None
 		self._autoresp_rcv_pos = self._autoresp_rcv

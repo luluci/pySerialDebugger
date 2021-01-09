@@ -1,8 +1,17 @@
 # PySerialDebugger
-~~シリアル通信をやりたかった。失敗作。~~  
-シリアル通信デバッグ用ツール。  
+シリアル通信デバッグツール。  
 シリアル通信ログを表示する。  
-シリアル通信受信内容に応じて自動応答する。  
+シリアル通信受信内容を解析して自動応答する。  
 
-## スクリーンショット
+## Initial
+初期設定でDEBUGモードになっている。  
+	§serial_mng.py
+	DEBUG = True
+
+シリアル通信を実行するときはFlaseに変えること。  
+	§serial_mng.py
+	DEBUG = False
+
+## ScreenShot
 ![ScreenShot](https://github.com/luluci/pySerialDebugger/blob/images/main.png)
+
