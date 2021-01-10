@@ -283,7 +283,7 @@ class gui_manager:
 			*self._layout_autoresp_data
 		]
 		layout_serial_auto_resp_column = [
-			[sg.Column(layout_serial_auto_resp, scrollable=True, vertical_scroll_only=False, size=(1300, 200))],
+			[sg.Column(layout_serial_auto_resp, scrollable=True, vertical_scroll_only=False, size=(1450, 240))],
 			[sg.Button("Update", key="btn_autoresp_update", size=(15, 1), enable_events=True)],
 		]
 		# Define: Send View
@@ -302,7 +302,7 @@ class gui_manager:
 			],
 		]
 		layout_serial_send_column = [
-			[sg.Column(layout_serial_send, scrollable=True, vertical_scroll_only=False, size=(1300, 200))],
+			[sg.Column(layout_serial_send, scrollable=True, vertical_scroll_only=False, size=(1450, 240))],
 			[sg.Frame("Send Option:", layout_serial_send_option)],
 		]
 		# Define: log View
@@ -628,7 +628,7 @@ class gui_manager:
 		self._font_tx = (self._data_font_family, 9)
 		self._size_name = (20, 1)
 		self._size_rx = (20, 1)
-		self._size_tx = (5, 1)
+		self._size_tx = (6, 1)
 		self._pad_tx = ((0, 0), (0, 0))
 		# Make Caption
 		self._layout_autoresp_caption = []
@@ -686,7 +686,7 @@ class gui_manager:
 		size_btn_txt = (5, 1)
 		size_btn = (5, 1)
 		size_name = (20, 1)
-		size_tx = (5, 1)
+		size_tx = (6, 1)
 		# Make Caption
 		self._layout_send_caption = []
 		self._layout_send_caption.append(sg.Text("", size=size_btn_txt, font=font_btn_txt))
@@ -1029,10 +1029,10 @@ class gui_manager:
 		self._autoresp_data = [
 				# 応答			# 自動応答対象					# 応答データ定義							# FCC定義(idx=0開始, 挿入位置=-1でFCC設定無効)
 				# 名称			# 受信データパターン			# 送信HEX						# サイズ	# 挿入位置	# 計算開始位置	# 計算終了位置
-			[	"Test1",		hex('ABCDEF0102'),				hex('aaBBccDDeeFF'),			18,			6,			2,				4,					],
-			[	"Test2",		hex('ABCD0102'),				hex('aa00bb11cc22dd33ee44'),	18,			12,			6,				7,					],
-			[	"Test3",		hex('ABCD03'),					hex('aa00bb11cc22dd33ee44'),	18,			-1,			0,				9,					],
-			[	"Test4",		hex('ABCD0102'),				[ inp('aa'), sel({'ON':1, 'OFF':0}), fix('00'), inp16('8000'), fix('00'), fix('00'), fix('00'), fix('00') ],	18,			17,			1,				16,					],
+			[	"Test1",		hex('ABCDEF0102'),				hex('aaBBccDDeeFF'),			24,			6,			2,				4,					],
+			[	"Test2",		hex('ABCD0102'),				hex('aa00bb11cc22dd33ee44'),	24,			12,			6,				7,					],
+			[	"Test3",		hex('ABCD03'),					hex('aa00bb11cc22dd33ee44'),	24,			-1,			0,				9,					],
+			[	"Test4",		hex('ABCD0102'),				[ inp('aa'), sel({'機能ON':1, '機能OFF':0}), fix('00'), inp16('8000'), fix('00'), fix('00'), fix('00'), fix('00') ],	18,			17,			1,				16,					],
 		]
 
 	def _send_settings(self) -> None:
@@ -1051,7 +1051,7 @@ class gui_manager:
 		self._send_data = [
 				# 送信設定						# 手動送信データ定義					# FCC定義(idx=0開始)
 				# 名称			#受信データ		# 送信HEX					#サイズ		# 挿入位置	# 計算開始位置	# 計算終了位置
-			[	"Manual",		None,			hex(''),					18,			17,			4,				7,				],
+			[	"Manual",		None,			hex(''),					24,			17,			4,				7,				],
 			[	"TestSend1",	None,			hex('00112233'),			-1,			4,			0,				3,				],
 			[	"TestSend2",	None,			hex('00'),					5,			-1,			0,				3,				],
 			[	"TestSend3",	None,			hex(''),					0,			-1,			0,				3,				],
