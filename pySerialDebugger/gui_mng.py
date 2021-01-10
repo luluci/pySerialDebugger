@@ -16,13 +16,17 @@ class gui_input:
 	# inputノードタイプ
 	INPUT, SELECT, FIX = range(0,3)
 	
-	def __init__(self, type: int, size: int, name: str, value: int, values: Dict[str,int]) -> None:
+	def __init__(self, type: int, size: int, name: str, value: int, values: Dict[str,int], endian:str) -> None:
 		# inputノードタイプを設定
 		if (type is None) or (size is None):
 			raise Exception("gui_input node require [type, size]")
 		self.type = type
 		# データサイズ(bit長)
 		self.size = size
+		# エンディアン
+		if endian is None:
+			endian = 'little'
+		self.endian = endian
 		# タイプごとに処理
 		if type == gui_input.INPUT:
 			self._init_input(name, value)
@@ -49,23 +53,27 @@ class gui_input:
 
 	@classmethod
 	def input(cls, hex: str):
-		return gui_input(gui_input.INPUT, 8, "kari", int(hex, 16), None)
+		return gui_input(gui_input.INPUT, 8, "kari", int(hex, 16), None, None)
 
 	@classmethod
 	def input_16(cls, hex: str):
-		return gui_input(gui_input.INPUT, 16, "kari", int(hex, 16), None)
+		return gui_input(gui_input.INPUT, 16, "kari", int(hex, 16), None, "little")
+
+	@classmethod
+	def input_16be(cls, hex: str):
+		return gui_input(gui_input.INPUT, 16, "kari", int(hex, 16), None, "big")
 
 	@classmethod
 	def select(cls, values: Dict[str, int]):
-		return gui_input(gui_input.SELECT, 8, "kari", None, values)
+		return gui_input(gui_input.SELECT, 8, "kari", None, values, None)
 
 	@classmethod
 	def select_16(cls, values: Dict[str, int]):
-		return gui_input(gui_input.SELECT, 16, "kari", None, values)
+		return gui_input(gui_input.SELECT, 16, "kari", None, values, None)
 
 	@classmethod
 	def fix(cls, hex: str):
-		return gui_input(gui_input.FIX, 8, "kari", int(hex, 16), None)
+		return gui_input(gui_input.FIX, 8, "kari", int(hex, 16), None, None)
 
 	def get_size(self) -> int:
 		return int(self.size / 8)
@@ -92,7 +100,7 @@ class gui_input:
 		if (hex_ptn.match(data) is None) or (len(data) > byte_size * 2):
 			data = "00"
 		self.value = int(data, 16)
-		return self.value.to_bytes(byte_size, 'little')
+		return self.value.to_bytes(byte_size, self.endian)
 
 	def get_value_select(self, gui_data: str) -> bytes:
 		# size取得
@@ -101,12 +109,12 @@ class gui_input:
 		if gui_data not in self.values:
 			gui_data = list(self.values.keys())[0]
 		self.value = self.values[gui_data]
-		return self.values[gui_data].to_bytes(byte_size, 'little')
+		return self.values[gui_data].to_bytes(byte_size, self.endian)
 
 	def set_value(self, tx_data: bytes, idx: int) -> None:
 		# size取得
 		byte_size = self.get_size()
-		self.value = int.from_bytes(tx_data[idx:idx+byte_size], byteorder='little', signed=False)
+		self.value = int.from_bytes(tx_data[idx:idx+byte_size], byteorder=self.endian, signed=False)
 
 	def get_bytes(self) -> bytes:
 		# タイプごとに処理
@@ -121,7 +129,7 @@ class gui_input:
 	def _get_bytes_input(self) -> bytes:
 		# size取得
 		byte_size = self.get_size()
-		return self.value.to_bytes(byte_size, 'little')
+		return self.value.to_bytes(byte_size, self.endian)
 
 	def _get_bytes_select(self) -> bytes:
 		# size取得
@@ -130,7 +138,7 @@ class gui_input:
 		for data in self.values:
 			if def_val is None:
 				def_val = self.values[data]
-		return def_val.to_bytes(byte_size, 'little')
+		return def_val.to_bytes(byte_size, self.endian)
 
 	def get_gui(self, key, size, pad, font) -> Any:
 		# タイプごとに処理
