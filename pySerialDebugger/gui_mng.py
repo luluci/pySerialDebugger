@@ -9,6 +9,11 @@ import queue
 import re
 import enum
 
+class gui_input:
+	"""
+
+	"""
+	pass
 
 class DataConf:
 	"""
@@ -408,18 +413,17 @@ class gui_manager:
 		"""
 		# 定義を読み込む
 		self._auto_response_settings()
-		# FCC処理
-		self._auto_response_update_fcc()
-		# SerialManagaerに通知
-		self._serial.autoresp_build(self._autoresp_data)
+		# 定義解析
+		self._auto_response_settings_construct()
 		# GUIに落とし込む
-		# AutoResp定義解析
+		# 最大送信データ長を算出、ヘッダ構築に利用
+		# TX_SIZEはconstructで更新済み
+		# 固定ヘッダのName,RX分の2を最後に足す
 		resp_len_max = 0
 		for resp in self._autoresp_data:
-			if len(resp[2]) > resp_len_max:
-				resp_len_max = len(resp[2]) + 2
-			if resp[3] > resp_len_max:
-				resp_len_max = resp[3] + 2
+			if resp[DataConf.TX_SIZE] > resp_len_max:
+				resp_len_max = resp[DataConf.TX_SIZE]
+		resp_len_max += 2
 		# GUIパーツ定義
 		self._font_name = (self._header_font_family, 10)
 		self._font_rx = (self._data_font_family, 10)
@@ -458,45 +462,27 @@ class gui_manager:
 			parts.append(sg.Text(resp[DataConf.NAME], size=self._size_name, font=self._font_name))
 			parts.append(sg.Text(resp[DataConf.RX].hex().upper(), size=self._size_rx, font=self._font_rx))
 			# Add resp data col
-			if isinstance(resp[DataConf.TX], bytes):
-				parts.extend(self._auto_response_init_value_bytes(idx, resp[DataConf.TX], resp[DataConf.TX_SIZE]))
-			if isinstance(resp[DataConf.TX], list):
-				pass
+			parts.extend([sg.Input(format(byte, "02X"), size=self._size_tx, font=self._font_tx, key=(idx, i), pad=self._pad_tx, enable_events=False) for i, byte in enumerate(self._autoresp_data_tx[idx])])
+			# Add empty data col
+			begin = len(self._autoresp_data_tx[idx])
+			end = resp[DataConf.TX_SIZE]
+			parts.extend([sg.Input( "", size=self._size_tx, font=self._font_tx, key=(idx,i), pad=self._pad_tx, enable_events=False) for i in range(begin, end)])
+			# GUI更新
 			self._layout_autoresp_data.append(parts)
-
-	def _auto_response_init_value_bytes(self, idx, tx_bytes, size) -> List[Any]:
-		result = []
-		# Add resp data col
-		result.extend([sg.Input(format(byte, "02X"), size=self._size_tx, font=self._font_tx, key=(idx, i), pad=self._pad_tx, enable_events=False) for i, byte in enumerate(tx_bytes)])
-		# Add empty data col
-		begin = len(tx_bytes)
-		end = size
-		result.extend([sg.Input( "", size=self._size_tx, font=self._font_tx, key=(idx,i), pad=self._pad_tx, enable_events=False) for i in range(begin, end)])
-		return result
-
-	def _auto_response_init_value_list(self, idx, tx_list, size) -> List[Any]:
-		result = []
 
 	def _send_init(self) -> None:
 		# 定義を読み込む
 		self._send_settings()
-		# FCC処理
-		self._send_update_fcc_all()
-		# Send定義解析
-		# データサイズ更新
+		# 定義解析
+		self._send_settings_construct()
+		# 最大送信データ長を算出、ヘッダ構築に利用
+		# TX_SIZEはconstructで更新済み
+		# 固定ヘッダのName分の1を最後に足す
 		send_col_num = 0
 		for data in self._send_data:
-			send_data_len = len(data[DataConf.TX])
-			send_data_size = data[DataConf.TX_SIZE]
-			# data毎のデータ数更新
-			data_len = send_data_len
-			if send_data_len < send_data_size:
-				data_len = send_data_size
-			data[DataConf.TX_SIZE] = data_len
 			# send_data GUI 列数を算出
-			if data_len > send_col_num:
-				send_col_num = data_len
-		# Name分を加算
+			if data[DataConf.TX_SIZE] > send_col_num:
+				send_col_num = data[DataConf.TX_SIZE]
 		send_col_num += 1
 		# GUIパーツ定義
 		font_btn_txt = (self._data_font_family, 11)
@@ -536,11 +522,74 @@ class gui_manager:
 			# Add Name col
 			self._layout_send_data[idx].append(sg.Text(resp[DataConf.NAME], size=size_name, font=font_name))
 			# Add resp data col
-			self._layout_send_data[idx].extend([sg.Input( format(byte,"02X"), size=size_tx, font=font_tx, key=("send",idx,i), pad=self._pad_tx, enable_events=False) for i,byte in enumerate(resp[DataConf.TX])])
+			self._layout_send_data[idx].extend([sg.Input( format(byte,"02X"), size=size_tx, font=font_tx, key=("send",idx,i), pad=self._pad_tx, enable_events=False) for i,byte in enumerate(self._send_data_tx[idx])])
 			# Add empty data col
-			begin = len(resp[DataConf.TX])
+			begin = len(self._send_data_tx[idx])
 			end = resp[DataConf.TX_SIZE]
 			self._layout_send_data[idx].extend([sg.Input( "", size=size_tx, font=font_tx, key=("send",idx,i), pad=self._pad_tx, enable_events=False) for i in range(begin, end)])
+
+	def _auto_response_settings_construct(self) -> None:
+		# 実送信データHEXを別データとして保持する
+		self._autoresp_data_tx = []
+		for i, resp in enumerate(self._autoresp_data):
+			### 送信データ長を算出
+			# 送信データHEX長と送信データサイズを比較
+			resp_len = max(len(resp[DataConf.TX]), resp[DataConf.TX_SIZE])
+			# FCCを反映
+			if resp[4] >= resp_len:
+				resp_len = resp[4] + 1
+			# 定義データを更新
+			resp[DataConf.TX_SIZE] = resp_len
+			### 送信データHEXを構築
+			tx_data = None
+			if isinstance(resp[DataConf.TX], bytes):
+				tx_data = resp[DataConf.TX]
+			self._autoresp_data_tx.append(tx_data)
+			# FCC算出
+			self._autoresp_data_tx[i] = self._update_fcc(self._autoresp_data_tx[i], resp[4], resp[5], resp[6])
+			# SerialManagaerに通知して解析ツリーを構築
+			self._serial.autoresp_build(resp[DataConf.NAME], resp[DataConf.RX], self._autoresp_data_tx[i])
+
+	def _send_settings_construct(self) -> None:
+		# 実送信データHEXを別データとして保持する
+		self._send_data_tx = []
+		for i, data in enumerate(self._send_data):
+			### 送信データ長を算出
+			# 送信データHEX長と送信データサイズを比較
+			data_len = max(len(data[DataConf.TX]), data[DataConf.TX_SIZE])
+			# FCCを反映
+			if data[4] >= data_len:
+				data_len = data[4] + 1
+			# 定義データを更新
+			data[DataConf.TX_SIZE] = data_len
+			### 送信データHEXを構築
+			tx_data = None
+			if isinstance(data[DataConf.TX], bytes):
+				tx_data = data[DataConf.TX]
+			self._send_data_tx.append(tx_data)
+			# FCC算出
+			self._send_data_tx[i] = self._update_fcc(self._send_data_tx[i], data[4], data[5], data[6])
+
+	def _update_fcc(self, tgt: bytes, fcc_pos:int, fcc_begin:int, fcc_end:int) -> bytes:
+		# FCC位置が-1ならスキップ
+		if fcc_pos != -1:
+			# FCC計算
+			fcc = 0
+			fcc = self._calc_fcc(tgt, fcc_begin, fcc_end+1, fcc_pos)
+			# FCC挿入
+			resp_len = len(tgt)
+			if resp_len-1 < fcc_pos:
+				# 挿入位置が応答データサイズを超える場合、バッファを追加する
+				# 挿入位置が応答データ長+1を超える場合はゼロ埋めする
+				for i in range(resp_len, fcc_pos):
+					tgt += (b'\0')
+				tgt += (fcc.to_bytes(1, 'little'))
+			else:
+				# 挿入位置が応答データサイズ未満のときは既存バッファを書き換える
+				temp = bytearray(tgt)
+				temp[fcc_pos] = fcc
+				tgt = bytes(temp)
+		return tgt
 
 
 	def _auto_response_update(self) -> None:
@@ -549,52 +598,28 @@ class gui_manager:
 		"""
 		# self._autoresp_data を書き換え
 		hex_ptn = re.compile(r'[0-9a-fA-F]{2}')
-		for i,autoresp in enumerate(self._autoresp_data):
+		for i,resp in enumerate(self._autoresp_data):
 			# GUIから設定値を取得
 			resp_data = []
-			for j in range(0, len(autoresp[2])):
+			for j in range(0, len(self._autoresp_data_tx[i])):
 				# 入力テキストをゼロ埋めで2桁にする
 				data = self._window[(i, j)].Get().zfill(2)
 				# 16進数文字列でなかったら 00 に強制置換
 				if (hex_ptn.match(data) is None) or (len(data) > 2):
 					data = "00"
 				resp_data.append(data)
-			autoresp[2] = bytes.fromhex(''.join(resp_data))
-		# FCC処理
-		self._auto_response_update_fcc()
+			self._autoresp_data_tx[i] = bytes.fromhex(''.join(resp_data))
+			# FCC算出
+			self._autoresp_data_tx[i] = self._update_fcc(self._autoresp_data_tx[i], resp[4], resp[5], resp[6])
 		# GUI更新
 		self._auto_response_update_gui()
 		# SerialManagaerに通知
-		self._serial.autoresp_update(self._autoresp_data)
-
-	def _auto_response_update_fcc(self):
-		# FCC処理
-		for resp in self._autoresp_data:
-			# FCC位置が-1ならスキップ
-			fcc_pos = resp[4]
-			if fcc_pos != -1:
-				# FCC計算
-				fcc = 0
-				fcc_begin = resp[5]
-				fcc_end = resp[6]
-				fcc = self._calc_fcc(resp[2], fcc_begin, fcc_end+1, fcc_pos)
-				# FCC挿入
-				resp_len = len(resp[2])
-				if resp_len-1 < fcc_pos:
-					# 挿入位置が応答データサイズを超える場合、バッファを追加する
-					# 挿入位置が応答データ長+1を超える場合はゼロ埋めする
-					for i in range(resp_len, fcc_pos):
-						resp[2] += (b'\0')
-					resp[2] += (fcc.to_bytes(1, 'little'))
-				else:
-					# 挿入位置が応答データサイズ未満のときは既存バッファを書き換える
-					temp = bytearray(resp[2])
-					temp[fcc_pos] = fcc
-					resp[2] = bytes(temp)
+		for i, resp in enumerate(self._autoresp_data):
+			self._serial.autoresp_update(resp[DataConf.NAME], self._autoresp_data_tx[i])
 
 	def _auto_response_update_gui(self):
 		for i, resp in enumerate(self._autoresp_data):
-			for j, byte in enumerate(resp[2]):
+			for j, byte in enumerate(self._autoresp_data_tx[i]):
 				self._window[(i, j)].Update(value=format(byte, "02X"))
 
 	def _req_send_bytes(self, idx:int) -> None:
@@ -614,49 +639,19 @@ class gui_manager:
 			send_data.append(data)
 		# データが有効なときだけ送信処理
 		if len(send_data) > 0:
-			self._send_data[idx][DataConf.TX] = bytes.fromhex(''.join(send_data))
-			# FCC処理
-			self._send_update_fcc(idx)
+			self._send_data_tx[idx] = bytes.fromhex(''.join(send_data))
+			# FCC算出
+			self._send_data_tx[idx] = self._update_fcc(self._send_data_tx[idx], self._send_data[idx][4], self._send_data[idx][5], self._send_data[idx][6])
 			# GUI更新
 			self._send_update_gui(idx)
 			# SerialManagaerに通知
 			if self._notify_to_serial.full():
 				print("Queue is full, send req denied.")
 			else:
-				self._notify_to_serial.put([serial_mng.ThreadNotify.TX_BYTES, self._send_data[idx][DataConf.TX], self._send_data[idx][DataConf.NAME]])
-
-	def _send_update_fcc_all(self):
-		# FCC処理
-		for i, resp in enumerate(self._send_data):
-			self._send_update_fcc(i)
-
-	def _send_update_fcc(self, idx:int):
-		# FCC処理
-		resp = self._send_data[idx]
-		# FCC位置が-1ならスキップ
-		fcc_pos = resp[4]
-		if fcc_pos != -1:
-			# FCC計算
-			fcc = 0
-			fcc_begin = resp[5]
-			fcc_end = resp[6]
-			fcc = self._calc_fcc(resp[DataConf.TX], fcc_begin, fcc_end+1, fcc_pos)
-			# FCC挿入
-			resp_len = len(resp[DataConf.TX])
-			if resp_len-1 < fcc_pos:
-				# 挿入位置が応答データサイズを超える場合、バッファを追加する
-				# 挿入位置が応答データ長+1を超える場合はゼロ埋めする
-				for i in range(resp_len, fcc_pos):
-					resp[DataConf.TX] += (b'\0')
-				resp[DataConf.TX] += (fcc.to_bytes(1, 'little'))
-			else:
-				# 挿入位置が応答データサイズ未満のときは既存バッファを書き換える
-				temp = bytearray(resp[DataConf.TX])
-				temp[fcc_pos] = fcc
-				resp[DataConf.TX] = bytes(temp)
+				self._notify_to_serial.put([serial_mng.ThreadNotify.TX_BYTES, self._send_data_tx[idx], self._send_data[idx][DataConf.NAME]])
 
 	def _send_update_gui(self, idx:int):
-		for i, byte in enumerate(self._send_data[idx][DataConf.TX]):
+		for i, byte in enumerate(self._send_data_tx[idx]):
 			self._window[("send", idx, i)].Update(value=format(byte, "02X"))
 
 	def _sendopt_update(self):
@@ -707,7 +702,7 @@ class gui_manager:
 				# 名称			# 受信データパターン			# 送信HEX						# サイズ	# 挿入位置	# 計算開始位置	# 計算終了位置
 			[	"Test1",		hex('ABCDEF0102'),				hex('aaBBccDDeeFF'),			18,			6,			2,				4,					],
 			[	"Test2",		hex('ABCD0102'),				hex('aa00bb11cc22dd33ee44'),	18,			12,			6,				7,					],
-			[	"Test3",		hex('ABCD0102'),				hex('aa00bb11cc22dd33ee44'),	18,			-1,			0,				9,					],
+			[	"Test3",		hex('ABCD03'),					hex('aa00bb11cc22dd33ee44'),	18,			-1,			0,				9,					],
 #			[	"Test4",		hex('ABCD0102'),				[ hex('aa'), {'ON':1, 'OFF':0} ],	10,			-1,			0,				9,					],
 		]
 

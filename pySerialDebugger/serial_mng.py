@@ -32,6 +32,10 @@ class serial_manager:
 		# フレーム受信中に手動送信することを防ぐ
 		# 前回受信から特定時間経過するまで手動送信しない
 		self._send_tx_delay: int = 0
+		# Response Table
+		self._autoresp_resp = {}
+		# Analyze Table
+		self._autoresp_rcv = self.autoresp_node()
 
 	def __del__(self) -> None:
 		self.close()
@@ -106,35 +110,28 @@ class serial_manager:
 			self.resp = None
 			self.name = ""
 
-	def autoresp_build(self, autoresp_data: List[List[any]]) -> None:
+	def autoresp_build(self, name: str, rx_bytes: bytes, tx_bytes: bytes) -> None:
 		"""
 		受信データ解析テーブルを構築
 		初回のみ実施。ツール起動後は応答データのみ更新できる。
 		"""
-		# Response Table
-		self._autoresp_resp = {}
-		# Analyze Table
-		self._autoresp_rcv = self.autoresp_node()
-		for resp in autoresp_data:
-			node_ref = self._autoresp_rcv
-			# bytesを辞書に登録
-			for byte in resp[1]:
-				if byte not in node_ref.next:
-					node_ref.next[byte] = self.autoresp_node()
-				node_ref = node_ref.next[byte]
-			# 末端ノードに応答データをセット
-			node_ref.is_tail = True
-			node_ref.resp = resp[2]
-			node_ref.name = resp[0]
-			self._autoresp_resp[resp[0]] = node_ref
+		node_ref = self._autoresp_rcv
+		# bytesを辞書に登録
+		for byte in rx_bytes:
+			if byte not in node_ref.next:
+				node_ref.next[byte] = self.autoresp_node()
+			node_ref = node_ref.next[byte]
+		# 末端ノードに応答データをセット
+		node_ref.is_tail = True
+		node_ref.name = name
+		node_ref.resp = tx_bytes
+		self._autoresp_resp[name] = node_ref
 
-	def autoresp_update(self, autoresp_data: List[List[any]]) -> None:
+	def autoresp_update(self, name:str, tx_bytes:bytes) -> None:
 		"""
 		応答データ更新
 		"""
-		# Response Table
-		for resp in autoresp_data:
-			self._autoresp_resp[resp[0]].resp = resp[2]
+		self._autoresp_resp[name].resp = tx_bytes
 
 	def sendopt_txdelay_update(self, time: int) -> None:
 		"""
