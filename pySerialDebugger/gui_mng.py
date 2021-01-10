@@ -1,6 +1,6 @@
 import time
 import concurrent.futures
-from typing import Any, Union, List
+from typing import Any, Union, List, Type, Dict, Tuple
 import PySimpleGUI as sg
 from PySimpleGUI.PySimpleGUI import Input
 from . import serial_mng
@@ -13,7 +13,154 @@ class gui_input:
 	"""
 
 	"""
-	pass
+	# inputノードタイプ
+	INPUT, SELECT, FIX = range(0,3)
+	# データサイズ
+	INT8, INT16 = range(0,2)
+	
+	def __init__(self, type: int, size: int, name: str, value: int, values: Dict[str,int]) -> None:
+		# inputノードタイプを設定
+		if (type is None) or (size is None):
+			raise Exception("gui_input node require [type, size]")
+		self.type = type
+		self.size = size
+		# タイプごとに処理
+		if type == gui_input.INPUT:
+			self._init_input(name, value)
+		if type == gui_input.SELECT:
+			self._init_select(name, values)
+		if type == gui_input.FIX:
+			self._init_input(name, value)
+
+	def _init_input(self, name: str, value: int):
+		if (name is None) or (value is None):
+			raise Exception("gui_input: INPUT node require [name, value]")
+		self.name = name
+		self.value = value
+
+	def _init_select(self, name: str, values: Dict[str, int]):
+		if (name is None) or (values is None):
+			raise Exception("gui_input: SELECT node require [name, values]")
+		self.name = name
+		self.values = values
+		# 初期値設定
+		for val in values.values():
+			self.value = val
+			break
+
+	@classmethod
+	def input(cls, hex: str):
+		return gui_input(gui_input.INPUT, gui_input.INT8, "kari", int(hex, 16), None)
+
+	@classmethod
+	def select(cls, values: Dict[str, int]):
+		return gui_input(gui_input.SELECT, gui_input.INT8, "kari", None, values)
+
+	@classmethod
+	def fix(cls, hex: str):
+		return gui_input(gui_input.FIX, gui_input.INT8, "kari", int(hex, 16), None)
+
+	def get_value(self, gui_data: str) -> bytes:
+		"""
+		GUI設定値を値に直して返す
+		"""
+		# タイプごとに処理
+		if self.type == gui_input.INPUT:
+			return self.get_value_input(gui_data)
+		if self.type == gui_input.SELECT:
+			return self.get_value_select(gui_data)
+		if self.type == gui_input.FIX:
+			return self.get_value_input(gui_data)
+
+	def get_value_input(self, gui_data: str) -> bytes:
+		hex_ptn = re.compile(r'[0-9a-fA-F]{2}')
+		# 入力テキストをゼロ埋めで2桁にする
+		data = gui_data.zfill(2)
+		# 16進数文字列でなかったら 00 に強制置換
+		if (hex_ptn.match(data) is None) or (len(data) > 2):
+			data = "00"
+		self.value = int(data, 16)
+		return bytes.fromhex(data)
+
+	def get_value_select(self, gui_data: str) -> bytes:
+		# keyが存在しなければ先頭データに強制置換
+		if gui_data not in self.values:
+			gui_data = list(self.values.keys())[0]
+		self.value = self.values[gui_data]
+		return self.values[gui_data].to_bytes(1, 'little')
+
+	def set_value(self, value:int) -> None:
+		self.value = value
+
+	def get_bytes(self) -> bytes:
+		# タイプごとに処理
+		if self.type == gui_input.INPUT:
+			return self._get_bytes_input()
+		if self.type == gui_input.SELECT:
+			return self._get_bytes_select()
+		if self.type == gui_input.FIX:
+			return self._get_bytes_input()
+		raise Exception("unknown node type detected!")
+
+	def _get_bytes_input(self) -> bytes:
+		return self.value.to_bytes(1, 'little')
+
+	def _get_bytes_select(self) -> bytes:
+		def_val = None
+		for data in self.values:
+			if def_val is None:
+				def_val = self.values[data]
+		return def_val.to_bytes(1, 'little')
+
+	def get_gui(self, key, size, pad, font) -> Any:
+		# タイプごとに処理
+		if self.type == gui_input.INPUT:
+			return self._get_gui_input(key, size, pad, font)
+		if self.type == gui_input.SELECT:
+			return self._get_gui_select(key, size, pad, font)
+		if self.type == gui_input.FIX:
+			return self._get_gui_fix(key, size, pad, font)
+		raise Exception("unknown node type detected!")
+
+	def _get_gui_input(self, key, size, pad, font):
+		return sg.Input(format(self.value, "02X"), key=key, size=size, pad=pad, font=font, enable_events=False)
+
+	def _get_gui_select(self, key, size, pad, font):
+		list = []
+		def_val = None
+		size= (size[0]-2, size[1])
+		for data in self.values:
+			if def_val is None:
+				def_val = data
+			list.append(data)
+		return sg.Combo(list, default_value=def_val, key=key, size=size, pad=pad, font=font, auto_size_text=True, enable_events=False)
+
+	def _get_gui_fix(self, key, size, pad, font):
+		return sg.Input(format(self.value, "02X"), key=key, size=size, pad=pad, font=font, enable_events=False, disabled=True, disabled_readonly_background_color=sg.theme_background_color(), disabled_readonly_text_color=sg.theme_element_text_color())
+
+	def get_gui_value(self) -> str:
+		# タイプごとに処理
+		if self.type == gui_input.INPUT:
+			return self._get_gui_value_input()
+		if self.type == gui_input.SELECT:
+			return self._get_gui_value_select()
+		if self.type == gui_input.FIX:
+			return self._get_gui_value_input()
+		raise Exception("unknown node type detected!")
+
+	def _get_gui_value_input(self) -> str:
+		return format(self.value, "02X")
+
+	def _get_gui_value_select(self) -> str:
+		def_val = None
+		for key, value in self.values.items():
+			if def_val is None:
+				def_val = key
+			if self.value == value:
+				return key
+		return def_val
+
+
 
 class DataConf:
 	"""
@@ -154,6 +301,8 @@ class gui_manager:
 			# Button: Send
 			"btn_send": self._hdl_btn_send,
 			"btn_sendopt_update": self._hdl_btn_sendopt_update,
+			# ButtonMenu:
+			"resp": self._hdl_btnmenu,
 			# Script Write Event
 			"_swe_disconnected": self._hdl_swe_disconnected,
 		}
@@ -163,6 +312,9 @@ class gui_manager:
 	def _hdl_exit(self, values):
 		self.close()
 		print("exit")
+
+	def _hdl_btnmenu(self, values, row, col):
+		val = values[("resp", row, col)]
 
 	def _hdl_btn_connect_init(self):
 		self._conn_btn_hdl = self._window["btn_connect"]
@@ -256,8 +408,8 @@ class gui_manager:
 	def _hdl_btn_autoresp_update(self, values):
 		self._auto_response_update()
 
-	def _hdl_btn_send(self, values, idx):
-		self._req_send_bytes(idx)
+	def _hdl_btn_send(self, values, row, col):
+		self._req_send_bytes(row)
 
 	def _hdl_btn_sendopt_update(self, values):
 		self._sendopt_update()
@@ -288,8 +440,8 @@ class gui_manager:
 			if event in self._events:
 				self._events[event](values)
 			if isinstance(event, tuple):
-				t_ev, idx = event
-				self._events[t_ev](values, idx)
+				t_ev, idx, col = event
+				self._events[t_ev](values, idx, col)
 			if event is None:
 				# 各スレッドに終了通知
 				#self._notify_to_serial.put([serial_mng.ThreadNotify.EXIT_TASK, None, None])
@@ -462,11 +614,7 @@ class gui_manager:
 			parts.append(sg.Text(resp[DataConf.NAME], size=self._size_name, font=self._font_name))
 			parts.append(sg.Text(resp[DataConf.RX].hex().upper(), size=self._size_rx, font=self._font_rx))
 			# Add resp data col
-			parts.extend([sg.Input(format(byte, "02X"), size=self._size_tx, font=self._font_tx, key=(idx, i), pad=self._pad_tx, enable_events=False) for i, byte in enumerate(self._autoresp_data_tx[idx])])
-			# Add empty data col
-			begin = len(self._autoresp_data_tx[idx])
-			end = resp[DataConf.TX_SIZE]
-			parts.extend([sg.Input( "", size=self._size_tx, font=self._font_tx, key=(idx,i), pad=self._pad_tx, enable_events=False) for i in range(begin, end)])
+			parts.extend(self._init_gui_tx("resp", idx, resp[DataConf.TX], resp[DataConf.TX_SIZE], self._autoresp_data_tx[idx]))
 			# GUI更新
 			self._layout_autoresp_data.append(parts)
 
@@ -513,20 +661,48 @@ class gui_manager:
 			self._layout_send_head.extend( [sg.Input(head_suffix + "[" + str(i - head_max + 2) + "]", size=size_tx, font=font_tx, disabled=True, pad=self._pad_tx, disabled_readonly_background_color=sg.theme_background_color(), disabled_readonly_text_color=sg.theme_element_text_color()) for i in range(head_max, send_col_num)])
 		# Make Values
 		self._layout_send_data = []
-		for idx, resp in enumerate(self._send_data):
+		for idx, data in enumerate(self._send_data):
 			# GUI処理
 			# Add empty list
-			self._layout_send_data.append([])
+			idx = len(self._layout_send_data)
+			parts = []
 			# Add Button col
-			self._layout_send_data[idx].append(sg.Button("Send", size=size_btn, font=font_btn, key=("btn_send",idx)))
+			parts.append(sg.Button("Send", size=size_btn, font=font_btn, key=("btn_send",idx, None)))
 			# Add Name col
-			self._layout_send_data[idx].append(sg.Text(resp[DataConf.NAME], size=size_name, font=font_name))
+			parts.append(sg.Text(data[DataConf.NAME], size=size_name, font=font_name))
 			# Add resp data col
-			self._layout_send_data[idx].extend([sg.Input( format(byte,"02X"), size=size_tx, font=font_tx, key=("send",idx,i), pad=self._pad_tx, enable_events=False) for i,byte in enumerate(self._send_data_tx[idx])])
-			# Add empty data col
-			begin = len(self._send_data_tx[idx])
-			end = resp[DataConf.TX_SIZE]
-			self._layout_send_data[idx].extend([sg.Input( "", size=size_tx, font=font_tx, key=("send",idx,i), pad=self._pad_tx, enable_events=False) for i in range(begin, end)])
+			parts.extend(self._init_gui_tx("send", idx, data[DataConf.TX], data[DataConf.TX_SIZE], self._send_data_tx[idx]))
+			# GUI更新
+			self._layout_send_data.append(parts)
+
+	def _init_gui_tx(self, key: str, idx: int, tx, size: int, tx_hex: bytes):
+		if isinstance(tx, bytes):
+			return self._init_gui_tx_bytes(key, idx, tx_hex, size)
+		if isinstance(tx, List):
+			return self._init_gui_tx_gui_list(key, idx, tx, size, tx_hex)
+
+	def _init_gui_tx_bytes(self, key: str, idx: int, hex: bytes, size: int):
+		parts = []
+		# Add resp data col
+		parts.extend([sg.Input(format(byte, "02X"), size=self._size_tx, font=self._font_tx, key=(key, idx, i), pad=self._pad_tx, enable_events=False) for i, byte in enumerate(hex)])
+		# Add empty data col
+		begin = len(hex)
+		end = size
+		parts.extend([sg.Input( "", size=self._size_tx, font=self._font_tx, key=(key, idx,i), pad=self._pad_tx, enable_events=False) for i in range(begin, end)])
+		return parts
+
+	def _init_gui_tx_gui_list(self, key: str, idx: int, txs: List[gui_input], size: int, tx_hex: bytes):
+		parts = []
+		# Add resp data col
+		for i, tx in enumerate(txs):
+			parts.append(tx.get_gui((key, idx, i), self._size_tx, self._pad_tx, self._font_tx))
+		# Add empty data col
+		begin = len(txs)
+		end = size
+		fix = gui_input.fix
+#		parts.extend([sg.Input( "", size=self._size_tx, font=self._font_tx, key=("resp", idx,i), pad=self._pad_tx, enable_events=False) for i in range(begin, end)])
+		parts.extend([fix(format(tx_hex[i], "02X")).get_gui((key, idx, i), self._size_tx, self._pad_tx, self._font_tx) for i in range(begin, end)])
+		return parts
 
 	def _auto_response_settings_construct(self) -> None:
 		# 実送信データHEXを別データとして保持する
@@ -544,9 +720,16 @@ class gui_manager:
 			tx_data = None
 			if isinstance(resp[DataConf.TX], bytes):
 				tx_data = resp[DataConf.TX]
+			if isinstance(resp[DataConf.TX], List):
+				tx_data = self._settings_construct_bytes(resp[DataConf.TX])
 			self._autoresp_data_tx.append(tx_data)
 			# FCC算出
 			self._autoresp_data_tx[i] = self._update_fcc(self._autoresp_data_tx[i], resp[4], resp[5], resp[6])
+			# FCC算出結果を送信データ定義に反映する。
+			# FCC位置設定が送信データ定義内にあった場合に有効となる。範囲外の場合はGUI設定の方で反映する。
+			if isinstance(resp[DataConf.TX], List):
+				for idx, tx in enumerate(resp[DataConf.TX]):
+					tx.set_value(self._autoresp_data_tx[i][idx])
 			# SerialManagaerに通知して解析ツリーを構築
 			self._serial.autoresp_build(resp[DataConf.NAME], resp[DataConf.RX], self._autoresp_data_tx[i])
 
@@ -566,9 +749,23 @@ class gui_manager:
 			tx_data = None
 			if isinstance(data[DataConf.TX], bytes):
 				tx_data = data[DataConf.TX]
+			if isinstance(data[DataConf.TX], List):
+				tx_data = self._settings_construct_bytes(data[DataConf.TX])
 			self._send_data_tx.append(tx_data)
 			# FCC算出
 			self._send_data_tx[i] = self._update_fcc(self._send_data_tx[i], data[4], data[5], data[6])
+			# FCC算出結果を送信データ定義に反映する。
+			# FCC位置設定が送信データ定義内にあった場合に有効となる。範囲外の場合はGUI設定の方で反映する。
+			if isinstance(data[DataConf.TX], List):
+				for idx, tx in enumerate(data[DataConf.TX]):
+					tx.set_value(self._send_data_tx[i][idx])
+
+	def _settings_construct_bytes(self, txs: List[gui_input]):
+		data = b''
+		# gui_inputリストからbytesを作成する
+		for tx in txs:
+			data += tx.get_bytes()
+		return data
 
 	def _update_fcc(self, tgt: bytes, fcc_pos:int, fcc_begin:int, fcc_end:int) -> bytes:
 		# FCC位置が-1ならスキップ
@@ -597,30 +794,93 @@ class gui_manager:
 		GUI上で更新された自動応答設定を反映する
 		"""
 		# self._autoresp_data を書き換え
-		hex_ptn = re.compile(r'[0-9a-fA-F]{2}')
 		for i,resp in enumerate(self._autoresp_data):
+			actual_len = len(self._autoresp_data_tx[i])
 			# GUIから設定値を取得
-			resp_data = []
-			for j in range(0, len(self._autoresp_data_tx[i])):
-				# 入力テキストをゼロ埋めで2桁にする
-				data = self._window[(i, j)].Get().zfill(2)
-				# 16進数文字列でなかったら 00 に強制置換
-				if (hex_ptn.match(data) is None) or (len(data) > 2):
-					data = "00"
-				resp_data.append(data)
-			self._autoresp_data_tx[i] = bytes.fromhex(''.join(resp_data))
+			self._autoresp_data_tx[i] = self._get_gui_tx("resp", i, actual_len, resp[DataConf.TX])
 			# FCC算出
 			self._autoresp_data_tx[i] = self._update_fcc(self._autoresp_data_tx[i], resp[4], resp[5], resp[6])
-		# GUI更新
-		self._auto_response_update_gui()
+			# GUI更新
+			self._update_gui_tx("resp", i, actual_len, resp[DataConf.TX], self._autoresp_data_tx[i])
 		# SerialManagaerに通知
 		for i, resp in enumerate(self._autoresp_data):
 			self._serial.autoresp_update(resp[DataConf.NAME], self._autoresp_data_tx[i])
 
-	def _auto_response_update_gui(self):
-		for i, resp in enumerate(self._autoresp_data):
-			for j, byte in enumerate(self._autoresp_data_tx[i]):
-				self._window[(i, j)].Update(value=format(byte, "02X"))
+	def _get_gui_tx(self, key: str, row: int, col_size: int, tx_data) -> bytes:
+		"""
+		GUI上の送信データ設定を取得する
+		"""
+		if isinstance(tx_data, bytes):
+			return self._get_gui_tx_bytes(key, row, col_size, tx_data)
+		if isinstance(tx_data, List):
+			return self._get_gui_tx_list(key, row, col_size, tx_data)
+
+	def _get_gui_tx_bytes(self, key: str, row: int, col_size: int, tx_data:bytes) -> bytes:
+		"""
+		GUI上の送信データ設定を取得する
+		"""
+		hex_ptn = re.compile(r'[0-9a-fA-F]{2}')
+		resp_data = []
+		for col in range(0, col_size):
+			# 入力テキストをゼロ埋めで2桁にする
+			data = self._window[(key, row, col)].Get().zfill(2)
+			# 16進数文字列でなかったら 00 に強制置換
+			if (hex_ptn.match(data) is None) or (len(data) > 2):
+				data = "00"
+			resp_data.append(data)
+		return bytes.fromhex(''.join(resp_data))
+
+	def _get_gui_tx_list(self, key: str, row: int, col_size: int, tx_data: List[gui_input]):
+		"""
+		GUI上の送信データ設定を取得する
+		"""
+		hex_ptn = re.compile(r'[0-9a-fA-F]{2}')
+		resp_data = b''
+		tx_len = len(tx_data)
+		for col in range(0, col_size):
+			data = None
+			if col < tx_len:
+				# gui_input定義があるとき
+				data = tx_data[col].get_value(self._window[(key, row, col)].Get())
+			else:
+				# gui_input定義がないとき
+				# 入力テキストをゼロ埋めで2桁にする
+				data = self._window[(key, row, col)].Get().zfill(2)
+				# 16進数文字列でなかったら 00 に強制置換
+				if (hex_ptn.match(data) is None) or (len(data) > 2):
+					data = "00"
+				data = bytes.fromhex(data)
+			resp_data += data
+		return resp_data
+
+	def _update_gui_tx(self, key: str, row: int, col_size: int, tx_data, txs: bytes) -> bytes:
+		"""
+		GUI上の送信データ設定を更新する
+		"""
+		if isinstance(tx_data, bytes):
+			return self._update_gui_tx_bytes(key, row, col_size, tx_data, txs)
+		if isinstance(tx_data, List):
+			return self._update_gui_tx_list(key, row, col_size, tx_data, txs)
+
+	def _update_gui_tx_bytes(self, key: str, row: int, col_size: int, tx_data: bytes, txs: bytes) -> bytes:
+		"""
+		GUI上の送信データ設定を更新する
+		"""
+		for col in range(0,col_size):
+			self._window[(key, row, col)].Update(value=format(txs[col], "02X"))
+
+	def _update_gui_tx_list(self, key: str, row: int, col_size: int, tx_data: List[gui_input], txs: bytes):
+		"""
+		GUI上の送信データ設定を更新する
+		"""
+		tx_len = len(tx_data)
+		for col in range(0, col_size):
+			if col < tx_len:
+				# gui_input定義があるとき
+				self._window[(key, row, col)].Update(value=tx_data[col].get_gui_value())
+			else:
+				# gui_input定義がないとき
+				self._window[(key, row, col)].Update(value=format(txs[col], "02X"))
 
 	def _req_send_bytes(self, idx:int) -> None:
 		"""
@@ -628,31 +888,22 @@ class gui_manager:
 		"""
 		# self._send を書き換え
 		hex_ptn = re.compile(r'[0-9a-fA-F]{2}')
+		data = self._send_data[idx]
+		actual_len = len(self._send_data_tx[idx])
 		# GUIから設定値を取得
-		send_data = []
-		for i in range(0, self._send_data[idx][DataConf.TX_SIZE]):
-			# 入力テキストをゼロ埋めで2桁にする
-			data = self._window[("send", idx, i)].Get().zfill(2)
-			# 16進数文字列でなかったら 00 に強制置換
-			if (hex_ptn.match(data) is None) or (len(data) > 2):
-				data = "00"
-			send_data.append(data)
+		self._send_data_tx[idx] = self._get_gui_tx("send", idx, actual_len, data[DataConf.TX])
 		# データが有効なときだけ送信処理
-		if len(send_data) > 0:
-			self._send_data_tx[idx] = bytes.fromhex(''.join(send_data))
-			# FCC算出
-			self._send_data_tx[idx] = self._update_fcc(self._send_data_tx[idx], self._send_data[idx][4], self._send_data[idx][5], self._send_data[idx][6])
-			# GUI更新
-			self._send_update_gui(idx)
-			# SerialManagaerに通知
-			if self._notify_to_serial.full():
-				print("Queue is full, send req denied.")
-			else:
-				self._notify_to_serial.put([serial_mng.ThreadNotify.TX_BYTES, self._send_data_tx[idx], self._send_data[idx][DataConf.NAME]])
-
-	def _send_update_gui(self, idx:int):
-		for i, byte in enumerate(self._send_data_tx[idx]):
-			self._window[("send", idx, i)].Update(value=format(byte, "02X"))
+		if len(self._send_data_tx[idx]) <= 0:
+			return
+		# FCC算出
+		self._send_data_tx[idx] = self._update_fcc(self._send_data_tx[idx], data[4], data[5], data[6])
+		# GUI更新
+		self._update_gui_tx("send", idx, actual_len, data[DataConf.TX], self._send_data_tx[idx])
+		# SerialManagaerに通知
+		if self._notify_to_serial.full():
+			print("Queue is full, send req denied.")
+		else:
+			self._notify_to_serial.put([serial_mng.ThreadNotify.TX_BYTES, self._send_data_tx[idx], self._send_data[idx][DataConf.NAME]])
 
 	def _sendopt_update(self):
 		time_ptn = re.compile(r'[0-9]+')
@@ -690,6 +941,9 @@ class gui_manager:
 		自動応答の定義はここを編集する
 		"""
 		hex = self._hex2bytes
+		inp = gui_input.input
+		sel = gui_input.select
+		fix = gui_input.fix
 
 		self._autoresp_caption = [
 			"[自動応答データ設定]", "", "応答データ"
@@ -703,11 +957,14 @@ class gui_manager:
 			[	"Test1",		hex('ABCDEF0102'),				hex('aaBBccDDeeFF'),			18,			6,			2,				4,					],
 			[	"Test2",		hex('ABCD0102'),				hex('aa00bb11cc22dd33ee44'),	18,			12,			6,				7,					],
 			[	"Test3",		hex('ABCD03'),					hex('aa00bb11cc22dd33ee44'),	18,			-1,			0,				9,					],
-#			[	"Test4",		hex('ABCD0102'),				[ hex('aa'), {'ON':1, 'OFF':0} ],	10,			-1,			0,				9,					],
+			[	"Test4",		hex('ABCD0102'),				[ inp('aa'), sel({'ON':1, 'OFF':0}), fix('00'), fix('00'), fix('00'), fix('00'), fix('00'), fix('00') ],	18,			17,			1,				16,					],
 		]
 
 	def _send_settings(self) -> None:
 		hex = self._hex2bytes
+		inp = gui_input.input
+		sel = gui_input.select
+		fix = gui_input.fix
 
 		self._send_caption = [
 			"[送信データ設定]", "送信データ",
@@ -722,6 +979,7 @@ class gui_manager:
 			[	"TestSend1",	None,			hex('00112233'),			-1,			4,			0,				3,				],
 			[	"TestSend2",	None,			hex('00'),					5,			-1,			0,				3,				],
 			[	"TestSend3",	None,			hex(''),					0,			-1,			0,				3,				],
+			[	"TestSend4",	None,			[ inp('aa'), sel({'ON':1, 'OFF':0}), fix('00'), fix('00'), fix('00'), fix('00'), fix('00'), fix('00') ],	18,			17,			1,				16,					],
 		]
 
 if __name__=="__main__":
