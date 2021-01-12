@@ -173,7 +173,7 @@ class serial_manager:
 					self._time_stamp = time.perf_counter_ns()
 					# 受信解析実行
 					trans_req, frame_name = self._recv_analyze(recv, send_notify)
-					if trans_req:
+					if (trans_req) and (len(self._write_buf) > 0):
 						#if self._serial.out_waiting > 0:
 						self._serial.write(self._write_buf)
 						self._serial.flush()
@@ -187,7 +187,7 @@ class serial_manager:
 						if msg == ThreadNotify.TX_BYTES:
 							self._serial.write(data)
 							self._serial.flush()
-							notify_msg = [ThreadNotify.COMMIT_TX_BYTES, self._write_buf, name, self._time_stamp]
+							notify_msg = [ThreadNotify.COMMIT_TX_BYTES, data, name, self._time_stamp]
 							send_notify.put(notify_msg, block=True, timeout=timeout)
 						if msg == ThreadNotify.EXIT_TASK:
 							break
@@ -245,7 +245,7 @@ class serial_manager:
 					if len(func) <= count:
 						count = 0
 					trans_req, frame_name = self._recv_analyze(recv, send_notify)
-					if trans_req:
+					if (trans_req) and (len(self._write_buf) > 0):
 						#if self._serial.out_waiting > 0:
 						#	self._serial.write(self._write_buf)
 						#	self._serial.flush()

@@ -1029,10 +1029,12 @@ class gui_manager:
 		self._autoresp_data = [
 				# 応答			# 自動応答対象					# 応答データ定義							# FCC定義(idx=0開始, 挿入位置=-1でFCC設定無効)
 				# 名称			# 受信データパターン			# 送信HEX						# サイズ	# 挿入位置	# 計算開始位置	# 計算終了位置
-			[	"Test1",		hex('ABCDEF0102'),				hex('aaBBccDDeeFF'),			24,			6,			2,				4,					],
-			[	"Test2",		hex('ABCD0102'),				hex('aa00bb11cc22dd33ee44'),	24,			12,			6,				7,					],
+#			[	"Test1",		hex('ABCDEF0102'),				hex('aaBBccDDeeFF'),			24,			6,			2,				4,					],
+#			[	"Test2",		hex('ABCD0102'),				hex('aa00bb11cc22dd33ee44'),	24,			12,			6,				7,					],
 			[	"Test3",		hex('ABCD03'),					hex('aa00bb11cc22dd33ee44'),	24,			-1,			0,				9,					],
-			[	"Test4",		hex('ABCD0102'),				[ inp('aa'), sel({'機能ON':1, '機能OFF':0}), fix('00'), inp16('8000'), fix('00'), fix('00'), fix('00'), fix('00') ],	18,			17,			1,				16,					],
+			# 応答なし設定(応答データ＝空)で受信データパターンマッチ時に受信データ＋名称だけ出力
+			[	"Test4",		hex('ABCDEF0102'),				b'',	0,	-1,	0,	0,	],
+			[	"Test5",		hex('ABCD0102'),				[ inp('aa'), sel({'機能ON':1, '機能OFF':0}), fix('00'), inp16('8000'), fix('00'), fix('00'), fix('00'), fix('00') ],	18,			17,			1,				16,					],
 		]
 
 	def _send_settings(self) -> None:
