@@ -244,6 +244,10 @@ class gui_manager:
 		self._comport_list = []
 		for com in self._serial.get_com_list():
 			self._comport_list.append( com.device )
+		if not self._comport_list:
+		# if len(self._comport_list) == 0:
+		# if self._comport_list == []:
+			raise Exception("COM port not found.")
 		self._bps_list = [2400, 9600]
 		self._bytesize_list = [5, 6, 7, 8]
 		self._parity_list = ["None", "EVEN", "ODD", "MARK", "SPACE"]
