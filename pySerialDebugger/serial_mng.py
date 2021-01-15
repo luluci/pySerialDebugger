@@ -111,7 +111,7 @@ class serial_manager:
 			self.resp = None
 			self.name = ""
 
-	def autoresp_build(self, name: str, rx_bytes: bytes, tx_bytes: bytes) -> None:
+	def autoresp_build(self, name: str, rx_bytes: bytes, tx_bytes: bytes, tx_enable: bool) -> None:
 		"""
 		受信データ解析テーブルを構築
 		初回のみ実施。ツール起動後は応答データのみ更新できる。
@@ -122,17 +122,31 @@ class serial_manager:
 			if byte not in node_ref.next:
 				node_ref.next[byte] = self.autoresp_node()
 			node_ref = node_ref.next[byte]
-		# 末端ノードに応答データをセット
-		node_ref.is_tail = True
-		node_ref.name = name
-		node_ref.resp = tx_bytes
+		# 受信応答が有効であれば末端情報セット
+		if tx_enable:
+			# 受信パターンに重複があれば警告
+			if node_ref.resp is not None:
+				print("warning: AutoResp Rx pattern duplicate: " + node_ref.name + " <-> " + name)
+			# 末端ノードに応答データをセット
+			node_ref.is_tail = True
+			node_ref.name = name
+			node_ref.resp = tx_bytes
+		# nameと末端ノードの対応付けを実施
 		self._autoresp_resp[name] = node_ref
 
-	def autoresp_update(self, name:str, tx_bytes:bytes) -> None:
+	def autoresp_update(self, name: str, tx_bytes: bytes, tx_enable: bool) -> None:
 		"""
 		応答データ更新
 		"""
-		self._autoresp_resp[name].resp = tx_bytes
+		if tx_enable:
+			# 自動応答有効なら応答データを更新
+			self._autoresp_resp[name].name = name
+			self._autoresp_resp[name].resp = tx_bytes
+		else:
+			# 自動応答無効なら自分の応答データが有効だったら無効化
+			if self._autoresp_resp[name].name == name:
+				self._autoresp_resp[name].name = ""
+				self._autoresp_resp[name].resp = None
 
 	def sendopt_txdelay_update(self, time: int) -> None:
 		"""
@@ -182,7 +196,7 @@ class serial_manager:
 				self._time_stamp = time.perf_counter_ns()
 				# 受信解析実行
 				trans_req, frame_name = self._recv_analyze(recv, send_notify)
-				if (trans_req) and (len(self._write_buf) > 0):
+				if (trans_req) and (self._write_buf) and (len(self._write_buf) > 0):
 					#if self._serial.out_waiting > 0:
 					self._serial.write(self._write_buf)
 					self._serial.flush()

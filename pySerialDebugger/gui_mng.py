@@ -212,10 +212,14 @@ class DataConf:
 	"""
 	GUI構築定義データ
 	"""
-	NAME = 0		# 定義名
-	RX = 1			# 受信データ
-	TX = 2			# 送信データ
-	TX_SIZE = 3		# 送信データサイズ
+	ENABLE = 0		# 有効無効設定
+	NAME = 1		# 定義名
+	RX = 2			# 受信データ
+	TX = 3			# 送信データ
+	TX_SIZE = 4		# 送信データサイズ
+	FCC_POS = 5		# FCC挿入位置
+	FCC_BEGIN = 6	# FCC計算開始位置
+	FCC_END = 7		# FCC計算終了位置
 
 class gui_manager:
 	DISCONNECTED, DISCONNECTING, CONNECTED, CONNECTING = (1,2,3,4)
@@ -279,6 +283,8 @@ class gui_manager:
 			sg.Text("StopBit:"),
 			sg.Combo(self._stopbit_list, key="cmb_stop_bit", default_value=1, size=(7, 1)),
 		]
+		# GUI共通部品定義
+		self._gui_param_init()
 		# Define: AutoResponse View
 		self._auto_response_init()
 		layout_serial_auto_resp = [
@@ -287,7 +293,7 @@ class gui_manager:
 			*self._layout_autoresp_data
 		]
 		layout_serial_auto_resp_column = [
-			[sg.Column(layout_serial_auto_resp, scrollable=True, vertical_scroll_only=False, size=(1450, 240))],
+			[sg.Column(layout_serial_auto_resp, scrollable=True, vertical_scroll_only=False, size=(1450, 280))],
 			[sg.Button("Update", key="btn_autoresp_update", size=(15, 1), enable_events=True)],
 		]
 		# Define: Send View
@@ -306,7 +312,7 @@ class gui_manager:
 			],
 		]
 		layout_serial_send_column = [
-			[sg.Column(layout_serial_send, scrollable=True, vertical_scroll_only=False, size=(1450, 240))],
+			[sg.Column(layout_serial_send, scrollable=True, vertical_scroll_only=False, size=(1450, 280))],
 			[sg.Frame("Send Option:", layout_serial_send_option)],
 		]
 		# Define: log View
@@ -611,6 +617,27 @@ class gui_manager:
 		result += "StopBit:[" + str(self._get_com_stopbit()) + "]"
 		return result
 
+	def _gui_param_init(self) -> None:
+		# GUIパーツ定義
+		# フォント定義
+		self._font_caption = (self._header_font_family, 10)
+		self._font_header = (self._data_font_family, 10)
+		self._font_btn_txt = (self._data_font_family, 11)
+		self._font_btn = (self._data_font_family, 9)
+		self._font_enable = (self._data_font_family, 9)
+		self._font_name = (self._header_font_family, 10)
+		self._font_rx = (self._data_font_family, 10)
+		self._font_tx = (self._data_font_family, 9)
+		# サイズ定義
+		self._size_caption = (23, 1)
+		self._size_btn_txt = (5, 1)
+		self._size_btn = (5, 1)
+		self._size_enable = (5, 1)
+		self._size_name = (20, 1)
+		self._size_rx = (20, 1)
+		self._size_tx = (6, 1)
+		self._pad_tx = ((0, 0), (0, 0))
+
 	def _auto_response_init(self) -> None:
 		"""
 		_auto_response_settings の設定内容をGUI上に構築する。
@@ -623,37 +650,30 @@ class gui_manager:
 		# GUIに落とし込む
 		# 最大送信データ長を算出、ヘッダ構築に利用
 		# TX_SIZEはconstructで更新済み
-		# 固定ヘッダのName,RX分の2を最後に足す
+		# 固定ヘッダ分(Enable,Name,Rx)を最後に足す
 		resp_len_max = 0
 		for resp in self._autoresp_data:
 			if resp[DataConf.TX_SIZE] > resp_len_max:
 				resp_len_max = resp[DataConf.TX_SIZE]
-		resp_len_max += 2
-		# GUIパーツ定義
-		self._font_name = (self._header_font_family, 10)
-		self._font_rx = (self._data_font_family, 10)
-		self._font_tx = (self._data_font_family, 9)
-		self._size_name = (20, 1)
-		self._size_rx = (20, 1)
-		self._size_tx = (6, 1)
-		self._pad_tx = ((0, 0), (0, 0))
+		resp_len_max += DataConf.RX + 1
 		# Make Caption
 		self._layout_autoresp_caption = []
-		self._layout_autoresp_caption.append(sg.Text(self._autoresp_caption[0], size=self._size_name, font=self._font_name))
-		self._layout_autoresp_caption.append(sg.Text(self._autoresp_caption[1], size=self._size_rx, font=self._font_name)) 
-		self._layout_autoresp_caption.append(sg.Text(self._autoresp_caption[2], size=self._size_name, font=self._font_name)) 
+		self._layout_autoresp_caption.append(sg.Text(self._autoresp_caption[0], size=self._size_caption, font=self._font_name))
+		self._layout_autoresp_caption.append(sg.Text(self._autoresp_caption[1], size=self._size_caption, font=self._font_name)) 
+		self._layout_autoresp_caption.append(sg.Text(self._autoresp_caption[2], size=self._size_caption, font=self._font_name)) 
 		# Make Header
-		# Name,Recvは固定とする
+		# 有効無効,Name,Recvは固定とする
 		# ヘッダ定義がデータ最大に足りなかったら穴埋めする
 		head_max = len(self._autoresp_head)
 		self._layout_autoresp_head = []
-		self._layout_autoresp_head.append(sg.Text(self._autoresp_head[0], size=self._size_name, font=self._font_name))
-		self._layout_autoresp_head.append(sg.Text(self._autoresp_head[1], size=self._size_rx, font=self._font_rx)) 
+		self._layout_autoresp_head.append(sg.Text(self._autoresp_head[DataConf.ENABLE], size=self._size_enable, font=self._font_enable))
+		self._layout_autoresp_head.append(sg.Text(self._autoresp_head[DataConf.NAME], size=self._size_name, font=self._font_header))
+		self._layout_autoresp_head.append(sg.Text(self._autoresp_head[DataConf.RX], size=self._size_rx, font=self._font_header))
 		head_suffix = ""
 		if head_max < resp_len_max:
 			head_suffix = self._autoresp_head[head_max-1]
 			self._autoresp_head[head_max-1] = head_suffix + "[1]"
-		self._layout_autoresp_head.extend([sg.Input(self._autoresp_head[i], size=self._size_tx, font=self._font_tx, disabled=True, pad=self._pad_tx, disabled_readonly_background_color=sg.theme_background_color(), disabled_readonly_text_color=sg.theme_element_text_color()) for i in range(2, head_max)])
+		self._layout_autoresp_head.extend([sg.Input(self._autoresp_head[i], size=self._size_tx, font=self._font_tx, disabled=True, pad=self._pad_tx, disabled_readonly_background_color=sg.theme_background_color(), disabled_readonly_text_color=sg.theme_element_text_color()) for i in range(DataConf.RX+1, head_max)])
 		if head_max < resp_len_max:
 			self._layout_autoresp_head.extend( [sg.Input(head_suffix + "[" + str(i - head_max + 2) + "]", size=self._size_tx, font=self._font_tx, disabled=True, pad=self._pad_tx, disabled_readonly_background_color=sg.theme_background_color(), disabled_readonly_text_color=sg.theme_element_text_color()) for i in range(head_max, resp_len_max)])
 		# Make Values
@@ -663,6 +683,8 @@ class gui_manager:
 			# Add empty list
 			idx = len(self._layout_autoresp_data)
 			parts = []
+			# Add AutoResponse_Enable
+			parts.append(sg.Checkbox("", default=resp[DataConf.ENABLE], key=("autoresp_enable",idx, None), size=(2, 1), font=self._font_enable))
 			# Add Name,Recv col
 			parts.append(sg.Text(resp[DataConf.NAME], size=self._size_name, font=self._font_name))
 			parts.append(sg.Text(resp[DataConf.RX].hex().upper(), size=self._size_rx, font=self._font_rx))
@@ -685,33 +707,24 @@ class gui_manager:
 			if data[DataConf.TX_SIZE] > send_col_num:
 				send_col_num = data[DataConf.TX_SIZE]
 		send_col_num += 1
-		# GUIパーツ定義
-		font_btn_txt = (self._data_font_family, 11)
-		font_btn = (self._data_font_family, 9)
-		font_name = (self._header_font_family, 10)
-		font_tx = (self._data_font_family, 9)
-		size_btn_txt = (5, 1)
-		size_btn = (5, 1)
-		size_name = (20, 1)
-		size_tx = (6, 1)
 		# Make Caption
 		self._layout_send_caption = []
-		self._layout_send_caption.append(sg.Text("", size=size_btn_txt, font=font_btn_txt))
-		self._layout_send_caption.append(sg.Text(self._send_caption[0], size=size_name, font=font_name))
-		self._layout_send_caption.append(sg.Text(self._send_caption[1], size=size_name, font=font_name)) 
+		self._layout_send_caption.append(sg.Text("", size=self._size_btn_txt, font=self._font_btn_txt))
+		self._layout_send_caption.append(sg.Text(self._send_caption[0], size=self._size_name, font=self._font_name))
+		self._layout_send_caption.append(sg.Text(self._send_caption[2], size=self._size_name, font=self._font_name)) 
 		# Make Header
 		head_max = len(self._send_head)
 		self._layout_send_head = []
-		self._layout_send_head.append(sg.Text("", size=size_btn_txt, font=font_btn_txt))
-		self._layout_send_head.append(sg.Text(self._send_head[0], size=size_name, font=font_name))
+		self._layout_send_head.append(sg.Text("", size=self._size_btn_txt, font=self._font_btn_txt))
+		self._layout_send_head.append(sg.Text(self._send_head[DataConf.NAME], size=self._size_name, font=self._font_name))
 		# ヘッダ定義がデータ最大に足りなかったら穴埋めする
 		head_suffix = ""
 		if head_max < send_col_num:
 			head_suffix = self._send_head[head_max-1]
 			self._send_head[head_max-1] = head_suffix + "[1]"
-		self._layout_send_head.extend([sg.Input(self._send_head[i], size=size_tx, font=font_tx, disabled=True, pad=self._pad_tx, disabled_readonly_background_color=sg.theme_background_color(), disabled_readonly_text_color=sg.theme_element_text_color()) for i in range(1, head_max)])
+		self._layout_send_head.extend([sg.Input(self._send_head[i], size=self._size_tx, font=self._font_tx, disabled=True, pad=self._pad_tx, disabled_readonly_background_color=sg.theme_background_color(), disabled_readonly_text_color=sg.theme_element_text_color()) for i in range(DataConf.RX+1, head_max)])
 		if head_max < send_col_num:
-			self._layout_send_head.extend( [sg.Input(head_suffix + "[" + str(i - head_max + 2) + "]", size=size_tx, font=font_tx, disabled=True, pad=self._pad_tx, disabled_readonly_background_color=sg.theme_background_color(), disabled_readonly_text_color=sg.theme_element_text_color()) for i in range(head_max, send_col_num)])
+			self._layout_send_head.extend( [sg.Input(head_suffix + "[" + str(i - head_max + 2) + "]", size=self._size_tx, font=self._font_tx, disabled=True, pad=self._pad_tx, disabled_readonly_background_color=sg.theme_background_color(), disabled_readonly_text_color=sg.theme_element_text_color()) for i in range(head_max, send_col_num)])
 		# Make Values
 		self._layout_send_data = []
 		for idx, data in enumerate(self._send_data):
@@ -720,9 +733,9 @@ class gui_manager:
 			idx = len(self._layout_send_data)
 			parts = []
 			# Add Button col
-			parts.append(sg.Button("Send", size=size_btn, font=font_btn, key=("btn_send",idx, None)))
+			parts.append(sg.Button("Send", size=self._size_btn, font=self._font_btn, key=("btn_send",idx, None)))
 			# Add Name col
-			parts.append(sg.Text(data[DataConf.NAME], size=size_name, font=font_name))
+			parts.append(sg.Text(data[DataConf.NAME], size=self._size_name, font=self._font_name))
 			# Add resp data col
 			parts.extend(self._init_gui_tx("send", idx, data[DataConf.TX], data[DataConf.TX_SIZE], self._send_data_tx[idx]))
 			# GUI更新
@@ -770,8 +783,8 @@ class gui_manager:
 			tx_len = self._calc_data_len(resp[DataConf.TX])
 			resp_len = max(tx_len, resp[DataConf.TX_SIZE])
 			# FCCを反映, FCC位置がデータ長よりも外側にあるとき
-			if resp[4] >= resp_len:
-				resp_len = resp[4] + 1
+			if resp[DataConf.FCC_POS] >= resp_len:
+				resp_len = resp[DataConf.FCC_POS] + 1
 			# 定義データを更新
 			resp[DataConf.TX_SIZE] = resp_len
 			### 送信データHEXを構築
@@ -782,7 +795,7 @@ class gui_manager:
 				tx_data = self._settings_construct_bytes(resp[DataConf.TX])
 			self._autoresp_data_tx.append(tx_data)
 			# FCC算出
-			self._autoresp_data_tx[i] = self._update_fcc(self._autoresp_data_tx[i], resp[4], resp[5], resp[6])
+			self._autoresp_data_tx[i] = self._update_fcc(self._autoresp_data_tx[i], resp[DataConf.FCC_POS], resp[DataConf.FCC_BEGIN], resp[DataConf.FCC_END])
 			# FCC算出結果を送信データ定義に反映する。
 			# FCC位置設定が送信データ定義内にあった場合に有効となる。範囲外の場合はGUI設定の方で反映する。
 			if isinstance(resp[DataConf.TX], List):
@@ -791,7 +804,7 @@ class gui_manager:
 					tx.set_value(self._autoresp_data_tx[i], idx)
 					idx += tx.get_size()
 			# SerialManagaerに通知して解析ツリーを構築
-			self._serial.autoresp_build(resp[DataConf.NAME], resp[DataConf.RX], self._autoresp_data_tx[i])
+			self._serial.autoresp_build(resp[DataConf.NAME], resp[DataConf.RX], self._autoresp_data_tx[i], resp[DataConf.ENABLE])
 
 	def _send_settings_construct(self) -> None:
 		# 実送信データHEXを別データとして保持する
@@ -802,8 +815,8 @@ class gui_manager:
 			tx_len = self._calc_data_len(data[DataConf.TX])
 			data_len = max(tx_len, data[DataConf.TX_SIZE])
 			# FCCを反映
-			if data[4] >= data_len:
-				data_len = data[4] + 1
+			if data[DataConf.FCC_POS] >= data_len:
+				data_len = data[DataConf.FCC_POS] + 1
 			# 定義データを更新
 			data[DataConf.TX_SIZE] = data_len
 			### 送信データHEXを構築
@@ -814,7 +827,7 @@ class gui_manager:
 				tx_data = self._settings_construct_bytes(data[DataConf.TX])
 			self._send_data_tx.append(tx_data)
 			# FCC算出
-			self._send_data_tx[i] = self._update_fcc(self._send_data_tx[i], data[4], data[5], data[6])
+			self._send_data_tx[i] = self._update_fcc(self._send_data_tx[i], data[DataConf.FCC_POS], data[DataConf.FCC_BEGIN], data[DataConf.FCC_END])
 			# FCC算出結果を送信データ定義に反映する。
 			# FCC位置設定が送信データ定義内にあった場合に有効となる。範囲外の場合はGUI設定の方で反映する。
 			if isinstance(data[DataConf.TX], List):
@@ -868,15 +881,17 @@ class gui_manager:
 		# self._autoresp_data を書き換え
 		for i,resp in enumerate(self._autoresp_data):
 			actual_len = len(self._autoresp_data_tx[i])
+			# 有効設定取得
+			resp[DataConf.ENABLE] = self._window[("autoresp_enable", i, None)].Get()
 			# GUIから設定値を取得
 			self._autoresp_data_tx[i] = self._get_gui_tx("resp", i, actual_len, resp[DataConf.TX])
 			# FCC算出
-			self._autoresp_data_tx[i] = self._update_fcc(self._autoresp_data_tx[i], resp[4], resp[5], resp[6])
+			self._autoresp_data_tx[i] = self._update_fcc(self._autoresp_data_tx[i], resp[DataConf.FCC_POS], resp[DataConf.FCC_BEGIN], resp[DataConf.FCC_END])
 			# GUI更新
 			self._update_gui_tx("resp", i, actual_len, resp[DataConf.TX], self._autoresp_data_tx[i])
 		# SerialManagaerに通知
 		for i, resp in enumerate(self._autoresp_data):
-			self._serial.autoresp_update(resp[DataConf.NAME], self._autoresp_data_tx[i])
+			self._serial.autoresp_update(resp[DataConf.NAME], self._autoresp_data_tx[i], resp[DataConf.ENABLE])
 
 	def _get_gui_tx(self, key: str, row: int, col_size: int, tx_data) -> bytes:
 		"""
@@ -977,7 +992,7 @@ class gui_manager:
 		if len(self._send_data_tx[idx]) <= 0:
 			return
 		# FCC算出
-		self._send_data_tx[idx] = self._update_fcc(self._send_data_tx[idx], data[4], data[5], data[6])
+		self._send_data_tx[idx] = self._update_fcc(self._send_data_tx[idx], data[DataConf.FCC_POS], data[DataConf.FCC_BEGIN], data[DataConf.FCC_END])
 		# GUI更新
 		self._update_gui_tx("send", idx, actual_len, data[DataConf.TX], self._send_data_tx[idx])
 		# SerialManagaerに通知
@@ -1031,17 +1046,17 @@ class gui_manager:
 			"[自動応答データ設定]", "", "応答データ"
 		]
 		self._autoresp_head = [
-			"Name", "Recv", "ST", "XX", "XX", "XX", "XX", "YY"
+			"[Act]", "[Name]", "[Recv]", "ST", "XX", "XX", "XX", "XX", "YY"
 		]
 		self._autoresp_data = [
-				# 応答			# 自動応答対象					# 応答データ定義							# FCC定義(idx=0開始, 挿入位置=-1でFCC設定無効)
-				# 名称			# 受信データパターン			# 送信HEX						# サイズ	# 挿入位置	# 計算開始位置	# 計算終了位置
-#			[	"Test1",		hex('ABCDEF0102'),				hex('aaBBccDDeeFF'),			24,			6,			2,				4,					],
-#			[	"Test2",		hex('ABCD0102'),				hex('aa00bb11cc22dd33ee44'),	24,			12,			6,				7,					],
-			[	"Test3",		hex('ABCD03'),					hex('aa00bb11cc22dd33ee44'),	24,			-1,			0,				9,					],
+							# 応答			# 自動応答対象					# 応答データ定義							# FCC定義(idx=0開始, 挿入位置=-1でFCC設定無効)
+				#有効		# 名称			# 受信データパターン			# 送信HEX						# サイズ	# 挿入位置	# 計算開始位置	# 計算終了位置
+#			[	True,		"Test1",		hex('ABCDEF0102'),				hex('aaBBccDDeeFF'),			24,			6,			2,				4,					],
+			[	True,		"Test2",		hex('ABCD0102'),				hex('aa00bb11cc22dd33ee44'),	24,			12,			6,				7,					],
+			[	True,		"Test3",		hex('ABCD03'),					hex('aa00bb11cc22dd33ee44'),	24,			-1,			0,				9,					],
 			# 応答なし設定(応答データ＝空)で受信データパターンマッチ時に受信データ＋名称だけ出力
-			[	"Test4",		hex('ABCDEF0102'),				b'',	0,	-1,	0,	0,	],
-			[	"Test5",		hex('ABCD0102'),				[ inp('aa'), sel({'機能ON':1, '機能OFF':0}), fix('00'), inp16('8000'), fix('00'), fix('00'), fix('00'), fix('00') ],	18,			17,			1,				16,					],
+			[	False,		"Test4",		hex('ABCDEF0102'),				b'',	0,	-1,	0,	0,	],
+			[	False,		"Test5",		hex('ABCD0102'),				[inp('aa'), sel({'機能ON': 1, '機能OFF': 0}), fix('00'), inp16('8000'), fix('00'), fix('00'), fix('00'), fix('00')],	18,			17,			1,				16,					],
 		]
 
 	def _send_settings(self) -> None:
@@ -1052,19 +1067,19 @@ class gui_manager:
 		fix = gui_input.fix
 
 		self._send_caption = [
-			"[送信データ設定]", "送信データ",
+			"[送信データ設定]", "", "送信データ",
 		]
 		self._send_head = [
-			"Name", "ST", "XX", "XX", "XX", "XX", "YY"
+			"[Act]", "[Name]", "ST", "XX", "XX", "XX", "XX", "YY"
 		]
 		self._send_data = [
-				# 送信設定						# 手動送信データ定義					# FCC定義(idx=0開始)
-				# 名称			#受信データ		# 送信HEX					#サイズ		# 挿入位置	# 計算開始位置	# 計算終了位置
-			[	"Manual",		None,			hex(''),					24,			17,			4,				7,				],
-			[	"TestSend1",	None,			hex('00112233'),			-1,			4,			0,				3,				],
-			[	"TestSend2",	None,			hex('00'),					5,			-1,			0,				3,				],
-			[	"TestSend3",	None,			hex(''),					0,			-1,			0,				3,				],
-			[	"TestSend4",	None,			[ inp('aa'), sel({'ON':1, 'OFF':0}), fix('00'), fix('00'), fix('00'), fix('00'), fix('00'), inp16('8000') ],	18,			17,			1,				16,					],
+							# 送信設定						# 手動送信データ定義					# FCC定義(idx=0開始)
+				#dummy		# 名称			#受信データ		# 送信HEX					#サイズ		# 挿入位置	# 計算開始位置	# 計算終了位置
+			[	None,		"Manual",		None,			hex(''),					24,			17,			4,				7,				],
+			[	None,		"TestSend1",	None,			hex('00112233'),			-1,			4,			0,				3,				],
+			[	None,		"TestSend2",	None,			hex('00'),					5,			-1,			0,				3,				],
+			[	None,		"TestSend3",	None,			hex(''),					0,			-1,			0,				3,				],
+			[	None,		"TestSend4",	None,			[ inp('aa'), sel({'ON':1, 'OFF':0}), fix('00'), fix('00'), fix('00'), fix('00'), fix('00'), inp16('8000') ],	18,			17,			1,				16,					],
 		]
 
 if __name__=="__main__":
