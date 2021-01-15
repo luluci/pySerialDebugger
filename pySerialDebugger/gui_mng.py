@@ -456,7 +456,10 @@ class gui_manager:
 		self._gui_conn_state = self.DISCONNECTED
 
 	def _hdl_btn_autoresp_update(self, values):
-		self._auto_response_update()
+		if self._serial.is_open():
+			self._notify_to_serial.put([serial_mng.ThreadNotify.AUTORESP_UPDATE, self._auto_response_update, None])
+		else:
+			self._auto_response_update()
 
 	def _hdl_btn_send(self, values, row, col):
 		self._req_send_bytes(row)
