@@ -1359,6 +1359,13 @@ class gui_manager:
 		]
 
 	def _autosend_settings(self) -> None:
+		"""
+		自動送信定義
+		手動送信として定義したデータを使って送信する。
+		送信対象は手動送信設定の名称で指定する。
+		シリアル通信での出力を確認せずにシーケンスを進めるので、
+		シリアル通信側で送信できずに詰まるとキューあふれを起こす点に注意。
+		"""
 		send = autosend_node.send
 		wait = autosend_node.wait_ms
 		exit = autosend_node.exit
@@ -1367,8 +1374,9 @@ class gui_manager:
 			"[AutoSend]", "自動送信パターン",
 		]
 		self._autosend_data = [
-			[send("TestSend1"), wait(5000), send("TestSend2"), wait(5000)],
-			[send("TestSend4"), exit() ],
+			[send("TestSend1"), wait(1000), send("TestSend2"), wait(1000)],
+			[send("TestSend4"), exit()],
+			[send("TestSend1"), wait(3000), send("TestSend2"), wait(3000), send("TestSend1"), wait(3000), send("TestSend2"), wait(3000)],
 		]
 
 
