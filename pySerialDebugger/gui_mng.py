@@ -347,6 +347,9 @@ class gui_manager:
 		self._window = sg.Window("pySerialDebugger", layout, finalize=True)
 
 	def _init_event(self) -> None:
+		"""
+		GUIイベントとイベントハンドラをひもづける
+		"""
 		# clear events
 		self._events = {
 			# Exit
@@ -363,7 +366,7 @@ class gui_manager:
 			"_swe_disconnected": self._hdl_swe_disconnected,
 		}
 		# event init
-		self._hdl_btn_connect_init()
+		self._gui_hdl_init()
 
 	def _hdl_exit(self, values):
 		self.close()
@@ -372,9 +375,10 @@ class gui_manager:
 	def _hdl_btnmenu(self, values, row, col):
 		val = values[("resp", row, col)]
 
-	def _hdl_btn_connect_init(self):
+	def _gui_hdl_init(self):
 		self._conn_btn_hdl = self._window["btn_connect"]
 		self._conn_status_hdl = self._window["text_status"]
+		self._gui_hdl_autoresp_update_btn = self._window["btn_autoresp_update"]
 
 	def _hdl_btn_connect(self, values):
 		#print("Button Pushed!")
@@ -463,6 +467,9 @@ class gui_manager:
 
 	def _hdl_btn_autoresp_update(self, values):
 		if self._serial.is_open():
+			# データ更新までボタン無効化
+			self._gui_hdl_autoresp_update_btn.Update(text="Updating...", disabled=True)
+			# シリアル通信スレッドに自動応答データ更新のリクエストを投げる
 			self._notify_to_serial.put([serial_mng.ThreadNotify.AUTORESP_UPDATE, self._auto_response_update, None])
 		else:
 			self._auto_response_update()
@@ -547,6 +554,9 @@ class gui_manager:
 						# self_notify.put(True)
 						# スレッドセーフらしい
 						self._window.write_event_value("_swe_disconnected", "")
+					elif notify == serial_mng.ThreadNotify.AUTORESP_UPDATE_FIN:
+						# データ更新でボタン有効化
+						self._gui_hdl_autoresp_update_btn.Update(text="Update", disabled=False)
 					else:
 						pass
 				#print("Run: serial_hdle()")

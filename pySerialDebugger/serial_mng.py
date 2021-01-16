@@ -19,6 +19,7 @@ class ThreadNotify(enum.Enum):
 	COMMIT_AND_PUSH_RX_BYTE = enum.auto()	# 既存バッファ出力後、受信データをバッファに追加
 	COMMIT_TX_BYTES = enum.auto()			# 自動応答データを出力
 	DISCONNECTED = enum.auto()				# シリアル切断
+	AUTORESP_UPDATE_FIN = enum.auto()		# 自動応答データ更新完了
 	# Serialへの通知
 	TX_BYTES = enum.auto()					# シリアル送信(手動)
 	AUTORESP_UPDATE = enum.auto()			# 自動応答データ更新
@@ -213,7 +214,11 @@ class serial_manager:
 						notify_msg = [ThreadNotify.COMMIT_TX_BYTES, data, name, self._time_stamp]
 						send_notify.put(notify_msg, block=True, timeout=timeout)
 					if msg == ThreadNotify.AUTORESP_UPDATE:
+						# 自動応答データ更新
 						data()
+						# 自動応答更新完了を通知
+						notify_msg = [ThreadNotify.AUTORESP_UPDATE_FIN, None, None, None]
+						send_notify.put(notify_msg, block=True, timeout=timeout)
 					if msg == ThreadNotify.EXIT_TASK:
 						break
 
@@ -246,7 +251,7 @@ class serial_manager:
 		if self._debug_buff_pos >= self._debug_buff_recv_size:
 			self._debug_buff_pos = 0
 		#
-		time.sleep(1)
+		time.sleep(0.5)
 		return result
 
 	def _thread_msg_data(self):
