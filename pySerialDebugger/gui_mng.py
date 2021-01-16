@@ -534,26 +534,11 @@ class gui_manager:
 							self.comm_hdle_log_output("RX", self.log_str, autoresp_name, timestamp)
 							# バッファクリア
 							self.log_str = ""
-					elif notify == serial_mng.ThreadNotify.PUSH_RX_BYTE:
+					elif notify == serial_mng.ThreadNotify.PUSH_RX:
 						# ログバッファに受信データを追加
 						# ログ出力は実施しない
 						self.log_str += data.hex().upper()
-					elif notify == serial_mng.ThreadNotify.PUSH_RX_BYTE_AND_COMMIT:
-						# ログバッファに受信データを追加
-						self.log_str += data.hex().upper()
-						# ログ出力
-						self.comm_hdle_log_output("RX", self.log_str, autoresp_name, timestamp)
-						# バッファクリア
-						self.log_str = ""
-					elif notify == serial_mng.ThreadNotify.COMMIT_AND_PUSH_RX_BYTE:
-						if self.log_str != "":
-							# ログ出力
-							self.comm_hdle_log_output("RX", self.log_str, autoresp_name, timestamp)
-							# バッファクリア
-							self.log_str = ""
-						# ログバッファに受信データを追加
-						self.log_str += data.hex().upper()
-					elif notify == serial_mng.ThreadNotify.COMMIT_TX_BYTES:
+					elif notify == serial_mng.ThreadNotify.COMMIT_TX:
 						# 送信データをログ出力
 						self.comm_hdle_log_output("TX", data.hex().upper(), autoresp_name, timestamp)
 					elif notify == serial_mng.ThreadNotify.DISCONNECTED:

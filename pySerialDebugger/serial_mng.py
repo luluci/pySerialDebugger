@@ -15,16 +15,74 @@ class ThreadNotify(enum.Enum):
 	"""
 	# GUIへの通知
 	COMMIT_RX = enum.auto()					# 受信バッファ出力
-	PUSH_RX_BYTE = enum.auto()				# 受信データをバッファに追加
-	PUSH_RX_BYTE_AND_COMMIT = enum.auto()	# 受信データをバッファに追加して、バッファ出力(正常異常問わず解析終了した)
-	COMMIT_AND_PUSH_RX_BYTE = enum.auto()	# 既存バッファ出力後、受信データをバッファに追加
-	COMMIT_TX_BYTES = enum.auto()			# 自動応答データを出力
+	PUSH_RX = enum.auto()					# 受信データをバッファに追加
+	COMMIT_TX = enum.auto()					# 自動応答データを出力
 	DISCONNECTED = enum.auto()				# シリアル切断
 	AUTORESP_UPDATE_FIN = enum.auto()		# 自動応答データ更新完了
 	# Serialへの通知
 	TX_BYTES = enum.auto()					# シリアル送信(手動)
 	AUTORESP_UPDATE = enum.auto()			# 自動応答データ更新
 	EXIT_TASK = enum.auto()					# シリアルタスク終了
+
+class AnalyzeResult:
+	"""
+	受信解析結果定義
+	"""
+
+	def __init__(self) -> None:
+		self._autoresp_send = False
+		self._rx_buf_commit_prev = False
+		self._rx_buf_commit = False
+		self._rx_buf_push = False
+
+	"""
+	状態設定メソッド
+	解析状態を設定する。内部で操作要求へ変換する。
+	"""
+	def set_analyze_NG2OK(self):
+		self._rx_buf_commit_prev = True
+
+	def set_analyze_OK2NG(self):
+		pass
+
+	def set_analyze_OK2OK(self):
+		pass
+
+	def set_analyze_NG2NG(self):
+		pass
+
+	def set_analyze_succeeded(self):
+		self._autoresp_send = True
+		self._rx_buf_push = True
+		self._rx_buf_commit = True
+
+	def set_analyze_failed(self):
+		# 
+		self._rx_buf_push = True
+
+	def set_analyzing(self):
+		self._rx_buf_push = True
+
+	def set_analyze_next_start(self):
+		self._rx_buf_commit_prev = True
+		self._rx_buf_push = True
+
+	"""
+	操作要求取得メソッド
+	"""
+	def trans_req(self) -> bool:
+		return self._autoresp_send
+
+	def prev_buff_commit(self) -> bool:
+		return self._rx_buf_commit_prev
+
+	def new_data_push(self) -> bool:
+		return self._rx_buf_push
+
+	def buff_commit(self) -> bool:
+		return self._rx_buf_commit
+
+
 
 class serial_manager:
 	
@@ -130,10 +188,10 @@ class serial_manager:
 			if node_ref.resp is not None:
 				print("warning: AutoResp Rx pattern duplicate: " + node_ref.name + " <-> " + name)
 			# 末端ノードに応答データをセット
-			node_ref.is_tail = True
 			node_ref.name = name
 			node_ref.resp = tx_bytes
 		# nameと末端ノードの対応付けを実施
+		node_ref.is_tail = True
 		self._autoresp_resp[name] = node_ref
 
 	def autoresp_update(self, name: str, tx_bytes: bytes, tx_enable: bool) -> None:
@@ -167,8 +225,10 @@ class serial_manager:
 		timeout = None
 		self._autoresp_rcv_pos = self._autoresp_rcv
 		self._time_stamp: int = 0
-		self._time_stamp_prev: int = 0
+		self._time_stamp_rx: int = 0
+		self._time_stamp_rx_prev: int = 0
 		self._recv_analyze_result = False
+		self._rx_commit_interval: int = 1 * 1000 * 1000 * 1000
 
 		if not DEBUG:
 			# シリアルポートオープン
@@ -194,27 +254,57 @@ class serial_manager:
 				recv = self._serial.read(1)
 			else:
 				recv = self._debug_serial_read(1)
+			# 受信時の現在時間取得
+			self._time_stamp = time.perf_counter_ns()
 			# データを受信した場合
 			if len(recv) > 0:
 				# 受信時の現在時間取得
-				self._time_stamp = time.perf_counter_ns()
+				self._time_stamp_rx = self._time_stamp
 				# 受信解析実行
-				self._recv_analyze(recv, send_notify)
+				result: AnalyzeResult
+				result, name = self._recv_analyze(recv)
+				# 解析結果処理
+				# 自動応答要求ありであれば先にシリアル通信を実施
+				if result.trans_req():
+					# 自動応答送信データが有効なときだけ送信実行
+					if (self._write_buf) and (len(self._write_buf) > 0):
+						#if self._serial.out_waiting > 0:
+						self._serial.write(self._write_buf)
+						self._serial.flush()
+				# GUI通知を実行
+				if result.prev_buff_commit():
+					notify_msg = [ThreadNotify.COMMIT_RX, None, "", self._time_stamp_rx_prev]
+					send_notify.put(notify_msg, block=True, timeout=timeout)
+				if result.new_data_push():
+					notify_msg = [ThreadNotify.PUSH_RX, recv, name, self._time_stamp_rx]
+					send_notify.put(notify_msg, block=True, timeout=timeout)
+				if result.buff_commit():
+					notify_msg = [ThreadNotify.COMMIT_RX, None, name, self._time_stamp_rx]
+					send_notify.put(notify_msg, block=True, timeout=timeout)
+				if result.trans_req():
+					# 自動応答送信データが有効なときだけ送信実行
+					if (self._write_buf) and (len(self._write_buf) > 0):
+						notify_msg = [ThreadNotify.COMMIT_TX, self._write_buf, name, self._time_stamp_rx]
+						send_notify.put(notify_msg, block=True, timeout=timeout)
 				# 前回受信時間
-				self._time_stamp_prev = self._time_stamp
+				self._time_stamp_rx_prev = self._time_stamp_rx
+			# 一定時間受信が無ければ送信バッファをコミット
+			if (self._time_stamp - self._time_stamp_rx) > self._rx_commit_interval:
+				notify_msg = [ThreadNotify.COMMIT_RX, None, "", self._time_stamp_rx_prev]
+				send_notify.put(notify_msg, block=True, timeout=timeout)
 			# GUIからの通知チェック
 			if not recv_notify.empty():
 				# 前回シリアル受信から一定時間内は受信中とみなし送信を抑制する
 				# この待機時間はGUIから設定する
 				curr_timestamp = time.perf_counter_ns()
-				if (curr_timestamp - self._time_stamp) >= self._send_tx_delay:
+				if (curr_timestamp - self._time_stamp_rx) >= self._send_tx_delay:
 					# 通知をdequeue
 					msg, data, name = recv_notify.get_nowait()
 					if msg == ThreadNotify.TX_BYTES:
 						# 手動送信
 						self._serial.write(data)
 						self._serial.flush()
-						notify_msg = [ThreadNotify.COMMIT_TX_BYTES, data, name, curr_timestamp]
+						notify_msg = [ThreadNotify.COMMIT_TX, data, name, curr_timestamp]
 						send_notify.put(notify_msg, block=True, timeout=timeout)
 					if msg == ThreadNotify.AUTORESP_UPDATE:
 						# 自動応答データ更新
@@ -237,9 +327,9 @@ class serial_manager:
 		print("Exit: connect()")
 
 	def _debug_serial_read_init(self) -> None:
-		self._debug_buff = bytes.fromhex("ABCD0102898989ABCDEF01028989")
+		self._debug_buff = bytes.fromhex("ABCD01028967896789ABCDEF01028989")
 		self._debug_buff_pos = 0
-		self._debug_buff_len = len(bytes.fromhex("ABCD0102898989ABCDEF01028989"))
+		self._debug_buff_len = len(self._debug_buff)
 		self._debug_buff_recv_size = 20
 
 	def _debug_serial_read(self, size:int) -> bytes:
@@ -254,6 +344,8 @@ class serial_manager:
 		if self._debug_buff_pos >= self._debug_buff_recv_size:
 			self._debug_buff_pos = 0
 		#
+		if result == b'67':
+			time.sleep(1.5)
 		time.sleep(0.2)
 		return result
 
@@ -263,88 +355,93 @@ class serial_manager:
 	def _thread_msg_next(self):
 		pass
 
-	def _recv_analyze(self, data: bytes, notify: queue.Queue):
+	def _recv_analyze(self, data: bytes) -> List[any]:
 		"""
 		受信解析を実施
 		送信が必要であれば返り値で示す。
 		queueへの通知：[ログ出力要求, 今回取得バイト, データ名称, タイムスタンプ]
 		"""
-		trans_req = False
+		analyze_succeeded = False
 		frame_name = ""
 		timeout = None
 		rcv_notify_msg = []
 		send_notify_msg = []
+		analyze_result = AnalyzeResult()
 		# 受信データ解析
 		if data[0] in self._autoresp_rcv_pos.next:
 			# 受信解析OK
+			# 解析状態変化判定
 			if not self._recv_analyze_result:
-				# 受信解析が NG -> OK のとき、バッファを一度吐き出す
-				rcv_notify_msg = [ThreadNotify.COMMIT_RX, None, "", self._time_stamp_prev]
-				# 通知を実施
-				notify.put(rcv_notify_msg, block=True, timeout=timeout)
+				# 受信解析[NG->OK]
+				analyze_result.set_analyze_NG2OK()
+			else:
+				# 受信解析[OK->OK] のとき、受信解析中
+				analyze_result.set_analyze_OK2OK()
 			# OK解析を実行
-			trans_req, frame_end, frame_name = self._recv_analyze_ok(data)
-			# OK + trans_req=True  + frame_end=any   -> 自動応答マッチ
-			# OK + trans_req=False + frame_end=True  -> 自動応答解析継続中だが、解析テーブルの末尾に到達しているので解析終了
-			# OK + trans_req=False + frame_end=False -> 自動応答解析継続中
-			if trans_req:
-				rcv_notify_msg = [ThreadNotify.PUSH_RX_BYTE_AND_COMMIT, data, frame_name, self._time_stamp]
+			analyze_succeeded, frame_end, frame_name = self._recv_analyze_ok(data)
+			if analyze_succeeded:
+				# 受信解析正常終了
+				analyze_result.set_analyze_succeeded()
 			else:
 				if frame_end:
-					rcv_notify_msg = [ThreadNotify.PUSH_RX_BYTE_AND_COMMIT, data, frame_name, self._time_stamp]
+					# 解析途中で解析テーブルの末尾に到達
+					# 受信解析途中終了
+					analyze_result.set_analyze_failed()
 				else:
-					rcv_notify_msg = [ThreadNotify.PUSH_RX_BYTE, data, frame_name, self._time_stamp]
+					# 解析継続中
+					analyze_result.set_analyzing()
 			# 前回解析結果格納
 			self._recv_analyze_result = True
 		else:
 			# 受信解析NG
-			# NG解析を実行
-			trans_req, frame_end, frame_name = self._recv_analyze_ng(data)
-			# NG + trans_req=True  -> これまでの解析は失敗＋次の解析開始
-			# NG + trans_req=False -> これまでの解析は失敗＋次回解析にもマッチしない
-			if trans_req:
-				# 既存データはノイズとしてアウトプット
-				# 今回データは現時点でOKなのでアウトプットしない
-				rcv_notify_msg = [ThreadNotify.COMMIT_AND_PUSH_RX_BYTE, data, frame_name, self._time_stamp]
+			# 解析状態変化判定
+			if self._recv_analyze_result:
+				# 受信解析[OK->NG]
+				analyze_result.set_analyze_OK2NG()
 			else:
-				# 受信データを追加
-				rcv_notify_msg = [ThreadNotify.PUSH_RX_BYTE, data, frame_name, self._time_stamp]
+				# 受信解析[NG->NG]
+				analyze_result.set_analyze_NG2NG()
+			# NG解析を実行
+			next_start, analyze_succeeded, frame_end, frame_name = self._recv_analyze_ng(data)
+			if next_start:
+				# ここまでの解析は失敗、次の解析開始
+				analyze_result.set_analyze_next_start()
+			else:
+				# 解析失敗継続
+				analyze_result.set_analyze_failed()
+			if analyze_succeeded:
+				# 自動応答送信要求あり
+				analyze_result.set_analyze_succeeded()
+			else:
+				# 解析失敗継続
+				analyze_result.set_analyze_failed()
 			# 前回解析結果格納
 			self._recv_analyze_result = False
-		# 通知を実施
-		notify.put(rcv_notify_msg, block=True, timeout=timeout)
-		# 自動応答判定
-		if (trans_req) and (self._write_buf) and (len(self._write_buf) > 0):
-			#if self._serial.out_waiting > 0:
-			self._serial.write(self._write_buf)
-			self._serial.flush()
-			send_notify_msg = [ThreadNotify.COMMIT_TX_BYTES, self._write_buf, frame_name, self._time_stamp]
-			# 通知を実施
-			notify.put(send_notify_msg, block=True, timeout=timeout)
-		return
+		return [analyze_result, frame_name]
 
 	def _recv_analyze_ok(self, data: bytes):
 		# 受信解析OK
-		resp_ok = False
+		analyze_succeeded = False
 		frame_end = False
 		frame_name = ""
 		# 次状態へ
 		self._autoresp_rcv_pos = self._autoresp_rcv_pos.next[data[0]]
-		# 末尾チェック
+		# 末尾ノード到達で受信正常終了
 		if self._autoresp_rcv_pos.is_tail:
 			self._write_buf = self._autoresp_rcv_pos.resp
-			resp_ok = True
+			analyze_succeeded = True
 			frame_end = True
 			frame_name = self._autoresp_rcv_pos.name
 		# 遷移先が空なら先頭へ戻る
 		if not self._autoresp_rcv_pos.next:
 			self._autoresp_rcv_pos = self._autoresp_rcv
 			frame_end = True
-		return [resp_ok, frame_end, frame_name]
+		return [analyze_succeeded, frame_end, frame_name]
 
 	def _recv_analyze_ng(self, data: bytes):
 		# 受信解析NG
-		resp_ok = False
+		next_start = False
+		trans_req = False
 		frame_end = False
 		frame_name = ""
 		# 先頭へ戻る
@@ -352,5 +449,6 @@ class serial_manager:
 		# 先頭からマッチするかチェック
 		if data[0] in self._autoresp_rcv_pos.next:
 			# 受信解析OK
-			resp_ok, frame_end, frame_name = self._recv_analyze_ok(data)
-		return [resp_ok, frame_end, frame_name]
+			next_start = True
+			trans_req, frame_end, frame_name = self._recv_analyze_ok(data)
+		return [next_start, trans_req, frame_end, frame_name]
