@@ -254,6 +254,7 @@ class serial_manager:
 				recv = self._serial.read(1)
 			else:
 				recv = self._debug_serial_read(1)
+				#recv = b''
 			# 受信時の現在時間取得
 			self._time_stamp = time.perf_counter_ns()
 			# データを受信した場合

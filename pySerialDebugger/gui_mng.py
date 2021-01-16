@@ -1,6 +1,6 @@
 import time
 import concurrent.futures
-from typing import Any, Union, List, Type, Dict, Tuple
+from typing import Any, Callable, Union, List, Type, Dict, Tuple
 import PySimpleGUI as sg
 from PySimpleGUI.PySimpleGUI import Input
 from . import serial_mng
@@ -207,6 +207,132 @@ class gui_input:
 		return def_val
 
 
+class autosend_node:
+	"""
+	自動送信定義ノード
+	"""
+	# ノードタイプ
+	SEND, WAIT, EXIT = range(0,3)
+	# wait分解能
+	MS, US, NS = range(0,3)
+
+	def __init__(self, type: int, name:str, wait:int, wait_unit:int) -> None:
+		self._node_type: int = type
+		self._send_name: str = name
+		self._wait_time: int = wait
+		self._wait_unit: int = wait_unit
+
+	@classmethod
+	def exit(cls):
+		return autosend_node(autosend_node.EXIT, None, 0, None)
+
+	@classmethod
+	def send(cls, name:str):
+		return autosend_node(autosend_node.SEND, name, 0, None)
+
+	@classmethod
+	def wait_ms(cls, wait: int):
+		return autosend_node(autosend_node.WAIT, None, wait * 1000 * 1000, autosend_node.MS)
+
+	@classmethod
+	def wait_us(cls, wait: int):
+		return autosend_node(autosend_node.WAIT, None, wait * 1000, autosend_node.US)
+
+	def get_gui(self, key, size, pad, font) -> Any:
+		# タイプごとに処理
+		text = ""
+		if self._node_type == autosend_node.SEND:
+			text = "send[" + self._send_name + "]"
+		elif self._node_type == autosend_node.WAIT:
+			time = 0
+			if self._wait_unit == autosend_node.MS:
+				time = self._wait_time / (1000 * 1000)
+			elif self._wait_unit == autosend_node.US:
+				time = self._wait_time / (1000 * 1000)
+			text = "wait[" + "{0}".format(time) + "]"
+		elif self._node_type == autosend_node.EXIT:
+			text = "exit"
+		else:
+			raise Exception("unknown node type detected!")
+		# GUI作成
+		return sg.Input(text, disabled=True, key=key, size=size, pad=pad, font=font, disabled_readonly_background_color=sg.theme_background_color(), disabled_readonly_text_color=sg.theme_element_text_color())
+
+
+class autosend_mng:
+	_send_cb: Callable[[str], None] = None
+
+	def __init__(self, nodes: List[autosend_node]) -> None:
+		self._nodes = nodes
+		self._pos = 0
+		self._enable = False
+		self._timestamp = 0
+
+	def start(self) -> None:
+		self._enable = True
+
+	def end(self) -> None:
+		self._enable = False
+		self._pos = 0
+		self._timestamp = 0
+
+	def running(self) -> bool:
+		return self._enable
+
+	def run(self, timestamp: int) -> bool:
+		if self._enable:
+			return self._run_impl(timestamp)
+		return True
+
+	def _next(self) -> None:
+		self._pos += 1
+		if self._pos >= len(self._nodes):
+			self._pos = 0
+
+	def _run_impl(self, timestamp: int) -> bool:
+		result = True
+		if self._nodes[self._pos]._node_type == autosend_node.SEND:
+			result = self._run_impl_send()
+		elif self._nodes[self._pos]._node_type == autosend_node.WAIT:
+			result = self._run_impl_wait(timestamp)
+		elif self._nodes[self._pos]._node_type == autosend_node.EXIT:
+			result = self._run_impl_exit()
+		return result
+
+	def _run_impl_send(self) -> bool:
+		autosend_mng._send_cb(self._nodes[self._pos]._send_name)
+		self._next()
+		return True
+
+	def _run_impl_wait(self, timestamp: int) -> bool:
+		if self._timestamp == 0:
+			# タイムスタンプ更新
+			self._timestamp = timestamp
+		else:
+			# wait時間経過判定
+			diff = timestamp - self._timestamp
+			if diff >= self._nodes[self._pos]._wait_time:
+				# タイムスタンプ初期化
+				self._timestamp = 0
+				self._next()
+		return True
+
+	def _run_impl_exit(self) -> bool:
+		self.end()
+		return False
+
+	def get_gui(self, key, idx, size, font, pad) -> Any:
+		parts = []
+		for col, node in enumerate(self._nodes):
+			if col != 0:
+				parts.append( sg.Text(">>", size=(3,1), font=font) )
+			else:
+				parts.append( sg.Text("", size=(1,1)) )
+			parts.append( node.get_gui( (key,idx,col), size, pad, font ) )
+		return parts
+
+	@classmethod
+	def set_cb(cls, cb: Callable[[str], None]) -> None:
+		cls._send_cb = cb
 
 class DataConf:
 	"""
@@ -315,6 +441,15 @@ class gui_manager:
 			[sg.Column(layout_serial_send, scrollable=True, vertical_scroll_only=False, size=(1450, 280))],
 			[sg.Frame("Send Option:", layout_serial_send_option)],
 		]
+		# Define: AutoSend View
+		self._autosend_init()
+		layout_serial_autosend = [
+			self._layout_autosend_caption,
+			*self._layout_autosend_data
+		]
+		layout_serial_autosend_column = [
+			[sg.Column(layout_serial_autosend, scrollable=True, vertical_scroll_only=False, size=(1450, 280))],
+		]
 		# Define: log View
 		layout_serial_log_col = [
 			[
@@ -340,7 +475,8 @@ class gui_manager:
 			#[sg.Frame("Manual Send Settings:", layout_serial_send_column)],
 			[sg.TabGroup([[
 				sg.Tab('Auto Response Settings', layout_serial_auto_resp_column),
-				sg.Tab('Manual Send Settings', layout_serial_send_column)
+				sg.Tab('Manual Send Settings', layout_serial_send_column),
+				sg.Tab('Auto Send Settings', layout_serial_autosend_column),
 			]])],
 			[sg.Frame("Log:", layout_serial_log)],
 		]
@@ -360,6 +496,8 @@ class gui_manager:
 			# Button: Send
 			"btn_send": self._hdl_btn_send,
 			"btn_sendopt_update": self._hdl_btn_sendopt_update,
+			# Button: AutoSend
+			"btn_autosend": self._hdl_btn_autosend,
 			# ButtonMenu:
 			"resp": self._hdl_btnmenu,
 			# Script Write Event
@@ -480,6 +618,21 @@ class gui_manager:
 	def _hdl_btn_sendopt_update(self, values):
 		self._sendopt_update()
 
+	def _hdl_btn_autosend(self, values, row, col):
+		self._autosend_data: List[autosend_mng]
+		if self._autosend_data[row].running():
+			# 自動送信有効のとき
+			# 自動送信を無効にする
+			self._autosend_data[row].end()
+			# GUI更新
+			self._window[("btn_autosend", row, col)].Update(text="Start")
+		else:
+			# 自動送信無効のとき
+			# 自動送信を有効にする
+			self._autosend_data[row].start()
+			# GUI更新
+			self._window[("btn_autosend", row, col)].Update(text="Sending...")
+
 	def exe(self):
 		# スレッド管理
 		self._future_comm_hdle = None
@@ -524,6 +677,7 @@ class gui_manager:
 		self.log_pos = 0
 		try:
 			while exit_flag.empty():
+				# シリアル通信からの指令を待機
 				if not serial_notify.empty():
 					# queueからデータ取得
 					notify, data, autoresp_name, timestamp = serial_notify.get_nowait()
@@ -551,8 +705,17 @@ class gui_manager:
 						self._gui_hdl_autoresp_update_btn.Update(text="Update", disabled=False)
 					else:
 						pass
+				# 受信時の現在時間取得
+				time_stamp = time.perf_counter_ns()
+				# 自動送信処理
+				node: autosend_mng
+				for i, node in enumerate(self._autosend_data):
+					result = node.run(time_stamp)
+					if not result:
+						# GUI更新
+						self._window[("btn_autosend", i, None)].Update(text="Start")
+				time.sleep(0.00001)
 				#print("Run: serial_hdle()")
-				time.sleep(0.0001)
 			print("Exit: serial_hdle()")
 		except:
 			import traceback
@@ -638,6 +801,10 @@ class gui_manager:
 		self._size_name = (20, 1)
 		self._size_rx = (20, 1)
 		self._size_tx = (6, 1)
+		self._size_as_caption = (13, 1)
+		self._size_as_btn = (10,1)
+		self._size_as = (17,1)
+		# padding
 		self._pad_tx = ((0, 0), (0, 0))
 
 	def _auto_response_init(self) -> None:
@@ -743,6 +910,30 @@ class gui_manager:
 			# GUI更新
 			self._layout_send_data.append(parts)
 
+	def _autosend_init(self) -> None:
+		# 定義を読み込む
+		self._autosend_settings()
+		# 定義解析
+		self._autosend_settings_construct()
+		# Make Caption
+		self._layout_autosend_caption = []
+		self._layout_autosend_caption.append(sg.Text(self._autosend_caption[0], size=self._size_as_caption, font=self._font_name))
+		self._layout_autosend_caption.append(sg.Text(self._autosend_caption[1], size=(100,1), font=self._font_name)) 
+		# Make Values
+		self._layout_autosend_data = []
+		for idx, data in enumerate(self._autosend_data):
+			data: autosend_mng
+			# GUI処理
+			# Add empty list
+			idx = len(self._layout_autosend_data)
+			parts = []
+			# Add Button col
+			parts.append(sg.Button("Start", size=self._size_as_btn, font=self._font_btn, key=("btn_autosend",idx, None)))
+			# Add Settings col
+			parts.extend(data.get_gui("autosend", idx, self._size_as, self._font_name, self._pad_tx))
+			# GUI更新
+			self._layout_autosend_data.append(parts)
+
 	def _init_gui_tx(self, key: str, idx: int, tx, size: int, tx_hex: bytes):
 		if isinstance(tx, bytes):
 			return self._init_gui_tx_bytes(key, idx, tx_hex, size)
@@ -811,6 +1002,7 @@ class gui_manager:
 	def _send_settings_construct(self) -> None:
 		# 実送信データHEXを別データとして保持する
 		self._send_data_tx = []
+		self._send_data_ref = {}
 		for i, data in enumerate(self._send_data):
 			### 送信データ長を算出
 			# 送信データHEX長と送信データサイズを比較
@@ -830,6 +1022,8 @@ class gui_manager:
 			self._send_data_tx.append(tx_data)
 			# FCC算出
 			self._send_data_tx[i] = self._update_fcc(self._send_data_tx[i], data[DataConf.FCC_POS], data[DataConf.FCC_BEGIN], data[DataConf.FCC_END])
+			# 名称-送信データHEX対応付けテーブルを作成
+			self._send_data_ref[data[DataConf.NAME]] = i
 			# FCC算出結果を送信データ定義に反映する。
 			# FCC位置設定が送信データ定義内にあった場合に有効となる。範囲外の場合はGUI設定の方で反映する。
 			if isinstance(data[DataConf.TX], List):
@@ -837,6 +1031,25 @@ class gui_manager:
 				for tx in data[DataConf.TX]:
 					tx.set_value(self._send_data_tx[i], idx)
 					idx += tx.get_size()
+
+	def _autosend_settings_construct(self) -> None:
+		# 自動送信マネージャに手動送信用コールバックを登録
+		autosend_mng.set_cb(self._send_by_name)
+		# 自動送信データ定義をチェック
+		for idx, data in enumerate(self._autosend_data):
+			# autosendノードチェック
+			for node in data:
+				if node._node_type == autosend_node.SEND:
+					if node._send_name not in self._send_data_ref:
+						# 送信対象定義名称が存在しない場合NG
+						raise Exception("in AutoSend Settings, '" + node._send_name + "' send setting not exist.")
+			# autosendノードをマネージャに置き換える
+			as_mng = autosend_mng(data)
+			self._autosend_data[idx] = as_mng
+
+	def _send_by_name(self, name:str) -> None:
+		idx = self._send_data_ref[name]
+		self._req_send_bytes(idx)
 
 	def _calc_data_len(self, txs: List[gui_input]) -> int:
 		if isinstance(txs, bytes):
@@ -1024,7 +1237,6 @@ class gui_manager:
 		for i in range(begin, end):
 			if (i != pos) and (i < data_len):
 				fcc += data[i]
-#		fcc = ((fcc % 256) ^ 0xFF) + 1
 		fcc = ((fcc ^ 0xFF) + 1) % 256
 		return fcc
 
@@ -1083,6 +1295,21 @@ class gui_manager:
 			[	None,		"TestSend3",	None,			hex(''),					0,			-1,			0,				3,				],
 			[	None,		"TestSend4",	None,			[ inp('aa'), sel({'ON':1, 'OFF':0}), fix('00'), fix('00'), fix('00'), fix('00'), fix('00'), inp16('8000') ],	18,			17,			1,				16,					],
 		]
+
+	def _autosend_settings(self) -> None:
+		send = autosend_node.send
+		wait = autosend_node.wait_ms
+		exit = autosend_node.exit
+
+		self._autosend_caption = [
+			"[AutoSend]", "自動送信パターン",
+		]
+		self._autosend_data = [
+			[send("TestSend1"), wait(5000), send("TestSend2"), wait(5000)],
+			[send("TestSend4"), exit() ],
+		]
+
+
 
 if __name__=="__main__":
 	try:
