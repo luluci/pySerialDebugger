@@ -260,6 +260,8 @@ class autosend_node:
 
 class autosend_mng:
 	_send_cb: Callable[[str], None] = None
+	_exit_cb: Callable[[int], None] = None
+	_gui_update_cb: Callable[[int,int,int], None] = None
 
 	def __init__(self, nodes: List[autosend_node]) -> None:
 		self._nodes = nodes
@@ -267,10 +269,15 @@ class autosend_mng:
 		self._enable = False
 		self._timestamp = 0
 
-	def start(self) -> None:
+	def start(self, idx: int) -> None:
 		self._enable = True
+		# GUI更新
+		autosend_mng._gui_update_cb(idx, None, self._pos)
 
-	def end(self) -> None:
+	def end(self, idx: int) -> None:
+		# GUI更新
+		autosend_mng._gui_update_cb(idx, self._pos, None)
+		# パラメータ初期化
 		self._enable = False
 		self._pos = 0
 		self._timestamp = 0
@@ -278,32 +285,32 @@ class autosend_mng:
 	def running(self) -> bool:
 		return self._enable
 
-	def run(self, timestamp: int) -> bool:
+	def run(self, idx: int, timestamp: int) -> None:
 		if self._enable:
-			return self._run_impl(timestamp)
-		return True
+			self._run_impl(idx, timestamp)
 
-	def _next(self) -> None:
+	def _next(self, idx: int) -> None:
+		idx_disable = self._pos
 		self._pos += 1
 		if self._pos >= len(self._nodes):
 			self._pos = 0
+		idx_enable = self._pos
+		# GUI更新
+		autosend_mng._gui_update_cb(idx, idx_disable, idx_enable)
 
-	def _run_impl(self, timestamp: int) -> bool:
-		result = True
+	def _run_impl(self, idx: int, timestamp: int) -> None:
 		if self._nodes[self._pos]._node_type == autosend_node.SEND:
-			result = self._run_impl_send()
+			self._run_impl_send(idx)
 		elif self._nodes[self._pos]._node_type == autosend_node.WAIT:
-			result = self._run_impl_wait(timestamp)
+			self._run_impl_wait(idx, timestamp)
 		elif self._nodes[self._pos]._node_type == autosend_node.EXIT:
-			result = self._run_impl_exit()
-		return result
+			self._run_impl_exit(idx)
 
-	def _run_impl_send(self) -> bool:
+	def _run_impl_send(self, idx: int) -> None:
 		autosend_mng._send_cb(self._nodes[self._pos]._send_name)
-		self._next()
-		return True
+		self._next(idx)
 
-	def _run_impl_wait(self, timestamp: int) -> bool:
+	def _run_impl_wait(self, idx: int, timestamp: int) -> None:
 		if self._timestamp == 0:
 			# タイムスタンプ更新
 			self._timestamp = timestamp
@@ -313,12 +320,11 @@ class autosend_mng:
 			if diff >= self._nodes[self._pos]._wait_time:
 				# タイムスタンプ初期化
 				self._timestamp = 0
-				self._next()
-		return True
+				self._next(idx)
 
-	def _run_impl_exit(self) -> bool:
-		self.end()
-		return False
+	def _run_impl_exit(self, idx: int) -> None:
+		autosend_mng._exit_cb(idx)
+		self.end(idx)
 
 	def get_gui(self, key, idx, size, font, pad) -> Any:
 		parts = []
@@ -331,8 +337,18 @@ class autosend_mng:
 		return parts
 
 	@classmethod
-	def set_cb(cls, cb: Callable[[str], None]) -> None:
+	def set_send_cb(cls, cb: Callable[[str], None]) -> None:
 		cls._send_cb = cb
+
+	@classmethod
+	def set_exit_cb(cls, cb: Callable[[int], None]) -> None:
+		cls._exit_cb = cb
+
+	@classmethod
+	def set_gui_update_cb(cls, cb: Callable[[int, int, int], None]) -> None:
+		cls._gui_update_cb = cb
+
+
 
 class DataConf:
 	"""
@@ -346,6 +362,16 @@ class DataConf:
 	FCC_POS = 5		# FCC挿入位置
 	FCC_BEGIN = 6	# FCC計算開始位置
 	FCC_END = 7		# FCC計算終了位置
+
+
+class ThreadNotify(enum.Enum):
+	"""
+	スレッド間通信メッセージ
+	"""
+	# [GUI->管理]通知
+	AUTOSEND_ENABLE = enum.auto()			# 自動送信有効化
+	AUTOSEND_DISABLE = enum.auto()			# 自動送信無効化
+
 
 class gui_manager:
 	DISCONNECTED, DISCONNECTING, CONNECTED, CONNECTING = (1,2,3,4)
@@ -502,6 +528,8 @@ class gui_manager:
 			"resp": self._hdl_btnmenu,
 			# Script Write Event
 			"_swe_disconnected": self._hdl_swe_disconnected,
+			"_swe_autosend_disable": self._hdl_autosend_disable,
+			"_swe_autosend_gui_update": self._hdl_autosend_gui_update,
 		}
 		# event init
 		self._gui_hdl_init()
@@ -620,18 +648,32 @@ class gui_manager:
 
 	def _hdl_btn_autosend(self, values, row, col):
 		self._autosend_data: List[autosend_mng]
-		if self._autosend_data[row].running():
-			# 自動送信有効のとき
-			# 自動送信を無効にする
-			self._autosend_data[row].end()
-			# GUI更新
-			self._window[("btn_autosend", row, col)].Update(text="Start")
-		else:
-			# 自動送信無効のとき
-			# 自動送信を有効にする
-			self._autosend_data[row].start()
-			# GUI更新
-			self._window[("btn_autosend", row, col)].Update(text="Sending...")
+		if self._serial.is_open():
+			if self._autosend_data[row].running():
+				# 自動送信有効のとき
+				# 自動送信を無効にする
+				self._comm_hdle_notify.put([ThreadNotify.AUTOSEND_DISABLE, row])
+				# GUI更新
+				self._window[("btn_autosend", row, col)].Update(text="Start")
+			else:
+				# 自動送信無効のとき
+				# 自動送信を有効にする
+				self._comm_hdle_notify.put([ThreadNotify.AUTOSEND_ENABLE, row])
+				# GUI更新
+				self._window[("btn_autosend", row, col)].Update(text="Sending..")
+
+	def _hdl_autosend_disable(self, values):
+		# GUI更新
+		self._window[("btn_autosend", values["_swe_autosend_disable"], None)].Update(text="Start")
+
+	def _hdl_autosend_gui_update(self, values):
+		# 引数取得
+		row, col_disable, col_enable = values["_swe_autosend_gui_update"]
+		# GUI更新
+		if col_disable is not None:
+			self._window[("autosend", row, col_disable)].Update(text_color=self._deactive_box)
+		if col_enable is not None:
+			self._window[("autosend", row, col_enable)].Update(text_color=self._active_box)
 
 	def exe(self):
 		# スレッド管理
@@ -645,7 +687,7 @@ class gui_manager:
 		self._comm_hdle_notify = queue.Queue(10)
 		# (1) Windows イベントハンドラ
 		# (2) シリアル通信
-		# (3) シリアル通信->送受信->GUI
+		# (3) 全体管理(シリアル通信->送受信->GUI)
 		# の3スレッドで処理を実施する
 		self._executer = concurrent.futures.ThreadPoolExecutor(max_workers=3)
 		self._future_comm_hdle = self._executer.submit(self.comm_hdle, self._exit_flag_comm_hdle, self._notify_from_serial, self._comm_hdle_notify)
@@ -705,15 +747,23 @@ class gui_manager:
 						self._gui_hdl_autoresp_update_btn.Update(text="Update", disabled=False)
 					else:
 						pass
+				# GUIからの指令を待機
+				if not self_notify.empty():
+					# queueからデータ取得
+					notify, pos = self_notify.get_nowait()
+					# 通知毎処理
+					if notify == ThreadNotify.AUTOSEND_ENABLE:
+						# 自動送信有効化
+						self._autosend_data[pos].start(pos)
+					elif notify == ThreadNotify.AUTOSEND_DISABLE:
+						# 自動送信無効化
+						self._autosend_data[pos].end(pos)
 				# 受信時の現在時間取得
 				time_stamp = time.perf_counter_ns()
 				# 自動送信処理
 				node: autosend_mng
 				for i, node in enumerate(self._autosend_data):
-					result = node.run(time_stamp)
-					if not result:
-						# GUI更新
-						self._window[("btn_autosend", i, None)].Update(text="Start")
+					node.run(i, time_stamp)
 				time.sleep(0.00001)
 				#print("Run: serial_hdle()")
 			print("Exit: serial_hdle()")
@@ -806,6 +856,10 @@ class gui_manager:
 		self._size_as = (17,1)
 		# padding
 		self._pad_tx = ((0, 0), (0, 0))
+		# text_color
+		#self._active_box = sg.theme_input_background_color()
+		self._active_box = '#F0F000'
+		self._deactive_box = sg.theme_element_text_color()
 
 	def _auto_response_init(self) -> None:
 		"""
@@ -1034,7 +1088,9 @@ class gui_manager:
 
 	def _autosend_settings_construct(self) -> None:
 		# 自動送信マネージャに手動送信用コールバックを登録
-		autosend_mng.set_cb(self._send_by_name)
+		autosend_mng.set_send_cb(self._autosend_send_by_name)
+		autosend_mng.set_exit_cb(self._autosend_exit)
+		autosend_mng.set_gui_update_cb(self._autosend_gui_update)
 		# 自動送信データ定義をチェック
 		for idx, data in enumerate(self._autosend_data):
 			# autosendノードチェック
@@ -1047,9 +1103,15 @@ class gui_manager:
 			as_mng = autosend_mng(data)
 			self._autosend_data[idx] = as_mng
 
-	def _send_by_name(self, name:str) -> None:
+	def _autosend_send_by_name(self, name:str) -> None:
 		idx = self._send_data_ref[name]
 		self._req_send_bytes(idx)
+
+	def _autosend_exit(self, idx: int) -> None:
+		self._window.write_event_value("_swe_autosend_disable", idx)
+
+	def _autosend_gui_update(self, row: int, col_disable: int, col_enable: int) -> None:
+		self._window.write_event_value("_swe_autosend_gui_update", (row, col_disable, col_enable))
 
 	def _calc_data_len(self, txs: List[gui_input]) -> int:
 		if isinstance(txs, bytes):
