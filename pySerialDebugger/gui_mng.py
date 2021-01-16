@@ -528,7 +528,13 @@ class gui_manager:
 					# queueからデータ取得
 					notify, data, autoresp_name, timestamp = serial_notify.get_nowait()
 					# 通知に応じて処理実施
-					if notify == serial_mng.ThreadNotify.PUSH_RX_BYTE:
+					if notify == serial_mng.ThreadNotify.COMMIT_RX:
+						if self.log_str != "":
+							# ログ出力
+							self.comm_hdle_log_output("RX", self.log_str, autoresp_name, timestamp)
+							# バッファクリア
+							self.log_str = ""
+					elif notify == serial_mng.ThreadNotify.PUSH_RX_BYTE:
 						# ログバッファに受信データを追加
 						# ログ出力は実施しない
 						self.log_str += data.hex().upper()
@@ -540,10 +546,11 @@ class gui_manager:
 						# バッファクリア
 						self.log_str = ""
 					elif notify == serial_mng.ThreadNotify.COMMIT_AND_PUSH_RX_BYTE:
-						# ログ出力
-						self.comm_hdle_log_output("RX", self.log_str, autoresp_name, timestamp)
-						# バッファクリア
-						self.log_str = ""
+						if self.log_str != "":
+							# ログ出力
+							self.comm_hdle_log_output("RX", self.log_str, autoresp_name, timestamp)
+							# バッファクリア
+							self.log_str = ""
 						# ログバッファに受信データを追加
 						self.log_str += data.hex().upper()
 					elif notify == serial_mng.ThreadNotify.COMMIT_TX_BYTES:
