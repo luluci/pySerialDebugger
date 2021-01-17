@@ -250,11 +250,14 @@ class autosend_node:
 			text = "send[" + self._send_name + "]"
 		elif self._node_type == autosend_node.WAIT:
 			time = 0
+			unit = ""
 			if self._wait_unit == autosend_node.MS:
 				time = self._wait_time / (1000 * 1000)
+				unit = "ms"
 			elif self._wait_unit == autosend_node.US:
-				time = self._wait_time / (1000 * 1000)
-			text = "wait[" + "{0}".format(time) + "]"
+				time = self._wait_time / (1000)
+				unit = "us"
+			text = "wait[" + "{0}".format(time) + unit + "]"
 		elif self._node_type == autosend_node.JUMP:
 			text = "jump_to[" + "{0}".format(self._jump_to) + "]"
 		elif self._node_type == autosend_node.EXIT:
@@ -1392,10 +1395,10 @@ class gui_manager:
 		シリアル通信での出力を確認せずにシーケンスを進めるので、
 		シリアル通信側で送信できずに詰まるとキューあふれを起こす点に注意。
 		"""
-		send = autosend_node.send
-		wait = autosend_node.wait_ms
-		exit = autosend_node.exit
-		jump = autosend_node.jump
+		send = autosend_node.send		# 手動送信で設定した送信データ(名称で指定)を送信する
+		wait = autosend_node.wait_ms	# 指定時間だけwaitする(※ms単位以下ではほとんど時間を守れてないので注意)
+		exit = autosend_node.exit		# 自動送信を終了する
+		jump = autosend_node.jump		# autosendリスト内の指定idx(0開始)にジャンプする
 
 		self._autosend_caption = [
 			"[AutoSend]", "自動送信パターン",
@@ -1403,7 +1406,7 @@ class gui_manager:
 		self._autosend_data = [
 			[send("TestSend1"), wait(1000), send("TestSend2"), wait(1000)],
 			[send("TestSend4"), exit()],
-			[send("TestSend1"), wait(3000), send("TestSend2"), wait(3000), send("TestSend1"), wait(3000), send("TestSend2"), jump(3)],
+			[send("TestSend1"), wait(100), send("TestSend2"), wait(30), send("TestSend1"), wait(30), send("TestSend2"), jump(3)],
 		]
 
 
