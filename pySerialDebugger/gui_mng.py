@@ -219,6 +219,7 @@ class autosend_node:
 	def __init__(self, type: int, name:str, wait:int, wait_unit:int, jump: int) -> None:
 		self._node_type: int = type
 		self._send_name: str = name
+		self._send_name_idx: int = 0
 		self._wait_time: int = wait
 		self._wait_unit: int = wait_unit
 		self._jump_to: int = jump
@@ -269,7 +270,7 @@ class autosend_node:
 
 
 class autosend_mng:
-	_send_cb: Callable[[str], None] = None
+	_send_cb: Callable[[int], None] = None
 	_exit_cb: Callable[[int], None] = None
 	_gui_update_cb: Callable[[int,int,int], None] = None
 
@@ -328,7 +329,7 @@ class autosend_mng:
 			self._run_impl_exit(idx)
 
 	def _run_impl_send(self, idx: int) -> None:
-		autosend_mng._send_cb(self._nodes[self._pos]._send_name)
+		autosend_mng._send_cb(self._nodes[self._pos]._send_name_idx)
 		self._next(idx)
 
 	def _run_impl_wait(self, idx: int, timestamp: int) -> None:
@@ -361,7 +362,7 @@ class autosend_mng:
 		return parts
 
 	@classmethod
-	def set_send_cb(cls, cb: Callable[[str], None]) -> None:
+	def set_send_cb(cls, cb: Callable[[int], None]) -> None:
 		cls._send_cb = cb
 
 	@classmethod
@@ -1112,7 +1113,7 @@ class gui_manager:
 
 	def _autosend_settings_construct(self) -> None:
 		# 自動送信マネージャに手動送信用コールバックを登録
-		autosend_mng.set_send_cb(self._autosend_send_by_name)
+		autosend_mng.set_send_cb(self._autosend_send)
 		autosend_mng.set_exit_cb(self._autosend_exit)
 		autosend_mng.set_gui_update_cb(self._autosend_gui_update)
 		# 自動送信データ定義をチェック
@@ -1124,6 +1125,8 @@ class gui_manager:
 					if node._send_name not in self._send_data_ref:
 						# 送信対象定義名称が存在しない場合NG
 						raise Exception("in AutoSend Settings, '" + node._send_name + "' send setting not exist.")
+					# 対象手動送信データのidxを記憶
+					node._send_name_idx = self._send_data_ref[node._send_name]
 				elif node._node_type == autosend_node.JUMP:
 					if node._jump_to >= len(data):
 						# Jump先が存在しない場合はNG
@@ -1132,9 +1135,17 @@ class gui_manager:
 			as_mng = autosend_mng(data)
 			self._autosend_data[idx] = as_mng
 
-	def _autosend_send_by_name(self, name:str) -> None:
-		idx = self._send_data_ref[name]
+	def _autosend_send(self, idx: int) -> None:
+		#idx = self._send_data_ref[name]
+		# 送信データをGUIから取得して送信する場合
 		self._req_send_bytes(idx)
+		# GUI上の更新を反映せずに送信する場合
+		# ↓を有効化、処理時間が早くなる
+		# SerialManagaerに通知
+		#if self._notify_to_serial.full():
+		#	print("Queue is full, send req denied.")
+		#else:
+		#	self._notify_to_serial.put([serial_mng.ThreadNotify.TX_BYTES, self._send_data_tx[idx], self._send_data[idx][DataConf.NAME]])
 
 	def _autosend_exit(self, idx: int) -> None:
 		self._window.write_event_value("_swe_autosend_disable", idx)
@@ -1396,7 +1407,7 @@ class gui_manager:
 		シリアル通信側で送信できずに詰まるとキューあふれを起こす点に注意。
 		"""
 		send = autosend_node.send		# 手動送信で設定した送信データ(名称で指定)を送信する
-		wait = autosend_node.wait_ms	# 指定時間だけwaitする(※ms単位以下ではほとんど時間を守れてないので注意)
+		wait = autosend_node.wait_ms	# 指定時間だけwaitする(※100ms前後くらい処理時間ありそう。_autosend_sendで毎回送信データを更新しない, autosend_mng._gui_update_cbでGUIを更新しない, などで高速化する)
 		exit = autosend_node.exit		# 自動送信を終了する
 		jump = autosend_node.jump		# autosendリスト内の指定idx(0開始)にジャンプする
 
@@ -1406,7 +1417,7 @@ class gui_manager:
 		self._autosend_data = [
 			[send("TestSend1"), wait(1000), send("TestSend2"), wait(1000)],
 			[send("TestSend4"), exit()],
-			[send("TestSend1"), wait(100), send("TestSend2"), wait(30), send("TestSend1"), wait(30), send("TestSend2"), jump(3)],
+			[send("TestSend1"), wait(100), send("TestSend2"), wait(100), send("TestSend1"), wait(100), send("TestSend2"), jump(3)],
 		]
 
 
