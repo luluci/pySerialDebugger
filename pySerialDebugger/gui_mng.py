@@ -212,31 +212,36 @@ class autosend_node:
 	自動送信定義ノード
 	"""
 	# ノードタイプ
-	SEND, WAIT, EXIT = range(0,3)
+	SEND, WAIT, JUMP, EXIT = range(0,4)
 	# wait分解能
 	MS, US, NS = range(0,3)
 
-	def __init__(self, type: int, name:str, wait:int, wait_unit:int) -> None:
+	def __init__(self, type: int, name:str, wait:int, wait_unit:int, jump: int) -> None:
 		self._node_type: int = type
 		self._send_name: str = name
 		self._wait_time: int = wait
 		self._wait_unit: int = wait_unit
+		self._jump_to: int = jump
 
 	@classmethod
 	def exit(cls):
-		return autosend_node(autosend_node.EXIT, None, 0, None)
+		return autosend_node(autosend_node.EXIT, None, 0, None, None)
 
 	@classmethod
 	def send(cls, name:str):
-		return autosend_node(autosend_node.SEND, name, 0, None)
+		return autosend_node(autosend_node.SEND, name, 0, None, None)
 
 	@classmethod
 	def wait_ms(cls, wait: int):
-		return autosend_node(autosend_node.WAIT, None, wait * 1000 * 1000, autosend_node.MS)
+		return autosend_node(autosend_node.WAIT, None, wait * 1000 * 1000, autosend_node.MS, None)
 
 	@classmethod
 	def wait_us(cls, wait: int):
-		return autosend_node(autosend_node.WAIT, None, wait * 1000, autosend_node.US)
+		return autosend_node(autosend_node.WAIT, None, wait * 1000, autosend_node.US, None)
+
+	@classmethod
+	def jump(cls, jump: int):
+		return autosend_node(autosend_node.JUMP, None, 0, None, jump)
 
 	def get_gui(self, key, size, pad, font) -> Any:
 		# タイプごとに処理
@@ -250,6 +255,8 @@ class autosend_node:
 			elif self._wait_unit == autosend_node.US:
 				time = self._wait_time / (1000 * 1000)
 			text = "wait[" + "{0}".format(time) + "]"
+		elif self._node_type == autosend_node.JUMP:
+			text = "jump_to[" + "{0}".format(self._jump_to) + "]"
 		elif self._node_type == autosend_node.EXIT:
 			text = "exit"
 		else:
@@ -298,11 +305,22 @@ class autosend_mng:
 		# GUI更新
 		autosend_mng._gui_update_cb(idx, idx_disable, idx_enable)
 
+	def _set_pos(self, idx: int, pos: int) -> None:
+		idx_disable = self._pos
+		self._pos = pos
+		if self._pos >= len(self._nodes):
+			self._pos = 0
+		idx_enable = self._pos
+		# GUI更新
+		autosend_mng._gui_update_cb(idx, idx_disable, idx_enable)
+
 	def _run_impl(self, idx: int, timestamp: int) -> None:
 		if self._nodes[self._pos]._node_type == autosend_node.SEND:
 			self._run_impl_send(idx)
 		elif self._nodes[self._pos]._node_type == autosend_node.WAIT:
 			self._run_impl_wait(idx, timestamp)
+		elif self._nodes[self._pos]._node_type == autosend_node.JUMP:
+			self._run_impl_jump(idx)
 		elif self._nodes[self._pos]._node_type == autosend_node.EXIT:
 			self._run_impl_exit(idx)
 
@@ -321,6 +339,9 @@ class autosend_mng:
 				# タイムスタンプ初期化
 				self._timestamp = 0
 				self._next(idx)
+
+	def _run_impl_jump(self, idx: int) -> None:
+		self._set_pos(idx, self._nodes[self._pos]._jump_to)
 
 	def _run_impl_exit(self, idx: int) -> None:
 		autosend_mng._exit_cb(idx)
@@ -1095,10 +1116,15 @@ class gui_manager:
 		for idx, data in enumerate(self._autosend_data):
 			# autosendノードチェック
 			for node in data:
+				node: autosend_node
 				if node._node_type == autosend_node.SEND:
 					if node._send_name not in self._send_data_ref:
 						# 送信対象定義名称が存在しない場合NG
 						raise Exception("in AutoSend Settings, '" + node._send_name + "' send setting not exist.")
+				elif node._node_type == autosend_node.JUMP:
+					if node._jump_to >= len(data):
+						# Jump先が存在しない場合はNG
+						raise Exception("in AutoSend Settings, jump to '" + "{0}".format(node._jump_to) + "'th node is not exist.")
 			# autosendノードをマネージャに置き換える
 			as_mng = autosend_mng(data)
 			self._autosend_data[idx] = as_mng
@@ -1369,6 +1395,7 @@ class gui_manager:
 		send = autosend_node.send
 		wait = autosend_node.wait_ms
 		exit = autosend_node.exit
+		jump = autosend_node.jump
 
 		self._autosend_caption = [
 			"[AutoSend]", "自動送信パターン",
@@ -1376,7 +1403,7 @@ class gui_manager:
 		self._autosend_data = [
 			[send("TestSend1"), wait(1000), send("TestSend2"), wait(1000)],
 			[send("TestSend4"), exit()],
-			[send("TestSend1"), wait(3000), send("TestSend2"), wait(3000), send("TestSend1"), wait(3000), send("TestSend2"), wait(3000)],
+			[send("TestSend1"), wait(3000), send("TestSend2"), wait(3000), send("TestSend1"), wait(3000), send("TestSend2"), jump(3)],
 		]
 
 
