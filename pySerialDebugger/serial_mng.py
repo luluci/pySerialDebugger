@@ -228,7 +228,6 @@ class serial_manager:
 		self._time_stamp_rx: int = 0
 		self._time_stamp_rx_prev: int = 0
 		self._recv_analyze_result = False
-		self._rx_commit_interval: int = 1 * 1000 * 1000 * 1000
 
 		if not DEBUG:
 			# シリアルポートオープン
@@ -289,10 +288,6 @@ class serial_manager:
 						send_notify.put(notify_msg, block=True, timeout=timeout)
 				# 前回受信時間
 				self._time_stamp_rx_prev = self._time_stamp_rx
-			# 一定時間受信が無ければ送信バッファをコミット
-			if (self._time_stamp - self._time_stamp_rx) > self._rx_commit_interval:
-				notify_msg = [ThreadNotify.COMMIT_RX, None, "", self._time_stamp_rx_prev]
-				send_notify.put(notify_msg, block=True, timeout=timeout)
 			# GUIからの通知チェック
 			if not recv_notify.empty():
 				# 前回シリアル受信から一定時間内は受信中とみなし送信を抑制する

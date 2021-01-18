@@ -742,8 +742,13 @@ class gui_manager:
 	def comm_hdle(self, exit_flag: queue.Queue, serial_notify: queue.Queue, self_notify: queue.Queue):
 		self.log_str = ""
 		self.log_pos = 0
+		timestamp_curr: int = 0
+		timestamp_rx: int = 0
+		rx_commit_interval: int = 1 * 1000 * 1000 * 1000	# 1sec無受信でコミット
 		try:
 			while exit_flag.empty():
+				# 今回現在時間取得
+				timestamp_curr = time.perf_counter_ns()
 				# シリアル通信からの指令を待機
 				if not serial_notify.empty():
 					# queueからデータ取得
@@ -756,6 +761,8 @@ class gui_manager:
 							# バッファクリア
 							self.log_str = ""
 					elif notify == serial_mng.ThreadNotify.PUSH_RX:
+						# 受信時タイムスタンプ取得
+						timestamp_rx = timestamp_curr
 						# ログバッファに受信データを追加
 						# ログ出力は実施しない
 						self.log_str += data.hex().upper()
@@ -783,13 +790,19 @@ class gui_manager:
 					elif notify == ThreadNotify.AUTOSEND_DISABLE:
 						# 自動送信無効化
 						self._autosend_data[pos].end(pos)
-				# 受信時の現在時間取得
-				time_stamp = time.perf_counter_ns()
 				# 自動送信処理
 				node: autosend_mng
 				for i, node in enumerate(self._autosend_data):
-					node.run(i, time_stamp)
-				time.sleep(0.00001)
+					node.run(i, timestamp_curr)
+				# 一定時間受信が無ければ送信バッファをコミット
+				if (timestamp_curr - timestamp_rx) > rx_commit_interval:
+					if self.log_str != "":
+						# ログ出力
+						self.comm_hdle_log_output("RX", self.log_str, "", timestamp_rx)
+						# バッファクリア
+						self.log_str = ""
+				# GUIに処理を回す
+				time.sleep(0.000001)
 				#print("Run: serial_hdle()")
 			print("Exit: serial_hdle()")
 		except:
