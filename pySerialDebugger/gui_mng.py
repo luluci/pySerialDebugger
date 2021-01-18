@@ -620,6 +620,17 @@ class gui_manager:
 			self._conn_status_hdl.Update(value="Disconnecting...")
 			# イベント周期で切断をポーリング
 			# self._window.write_event_value("btn_connect", "")
+			# 自動送信を全終了
+			for row, autosend in enumerate(self._autosend_data):
+				if self._autosend_data[row].running():
+					# 自動送信有効のとき
+					# 自動送信を無効にする
+					self._comm_hdle_notify.put([ThreadNotify.AUTOSEND_DISABLE, row])
+					# GUI更新
+					self._window[("btn_autosend", row, None)].Update(text="Start")
+				else:
+					# 自動送信無効のとき
+					pass
 
 		elif self._gui_conn_state == self.DISCONNECTING:
 			# 切断完了判定を実施
@@ -728,7 +739,7 @@ class gui_manager:
 			if isinstance(event, tuple):
 				t_ev, idx, col = event
 				self._events[t_ev](values, idx, col)
-			if event is None:
+			if event in (None, 'Quit'):
 				# 各スレッドに終了通知
 				#self._notify_to_serial.put([serial_mng.ThreadNotify.EXIT_TASK, None, None])
 				self._exit_flag_serial.put(True)
