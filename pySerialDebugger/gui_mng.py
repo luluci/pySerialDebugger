@@ -922,7 +922,7 @@ class gui_manager:
 		# GUIに落とし込む
 		# 最大送信データ長を算出、ヘッダ構築に利用
 		# TX_SIZEはconstructで更新済み
-		# 固定ヘッダ分(Enable,Name,Rx)を最後に足す
+		# 固定ヘッダの分を最後に足す
 		resp_len_max = 0
 		for resp in self._autoresp_data:
 			if resp[DataConf.TX_SIZE] > resp_len_max:
@@ -972,13 +972,13 @@ class gui_manager:
 		self._send_settings_construct()
 		# 最大送信データ長を算出、ヘッダ構築に利用
 		# TX_SIZEはconstructで更新済み
-		# 固定ヘッダのName分の1を最後に足す
+		# 固定ヘッダの分を最後に足す
 		send_col_num = 0
 		for data in self._send_data:
 			# send_data GUI 列数を算出
 			if data[DataConf.TX_SIZE] > send_col_num:
 				send_col_num = data[DataConf.TX_SIZE]
-		send_col_num += 1
+		send_col_num += DataConf.RX + 1
 		# Make Caption
 		self._layout_send_caption = []
 		self._layout_send_caption.append(sg.Text("", size=self._size_btn_txt, font=self._font_btn_txt))
@@ -1096,9 +1096,13 @@ class gui_manager:
 			# FCC位置設定が送信データ定義内にあった場合に有効となる。範囲外の場合はGUI設定の方で反映する。
 			if isinstance(resp[DataConf.TX], List):
 				idx = 0
+				tx: gui_input
 				for tx in resp[DataConf.TX]:
 					tx.set_value(self._autoresp_data_tx[i], idx)
 					idx += tx.get_size()
+			# 送信データHEXをデータサイズまで00埋めする
+			for idx in range(len(self._autoresp_data_tx[i]), resp[DataConf.TX_SIZE]):
+				self._autoresp_data_tx[i] += b'\0'
 			# SerialManagaerに通知して解析ツリーを構築
 			self._serial.autoresp_build(resp[DataConf.NAME], resp[DataConf.RX], self._autoresp_data_tx[i], resp[DataConf.ENABLE])
 
@@ -1410,7 +1414,7 @@ class gui_manager:
 			"[送信データ設定]", "", "送信データ",
 		]
 		self._send_head = [
-			"[Act]", "[Name]", "ST", "XX", "XX", "XX", "XX", "YY"
+			"dummy", "[Name]", "dummy", "ST", "XX", "XX", "XX", "XX", "YY"
 		]
 		self._send_data = [
 							# 送信設定						# 手動送信データ定義					# FCC定義(idx=0開始)
