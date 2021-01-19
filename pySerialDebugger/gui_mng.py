@@ -548,7 +548,7 @@ class gui_manager:
 		# clear events
 		self._events = {
 			# Exit
-			None: self._hdl_exit,
+			# None: self._hdl_exit,
 			# Button: Connect
 			"btn_connect": self._hdl_btn_connect,
 			"btn_autoresp_update": self._hdl_btn_autoresp_update,
@@ -749,6 +749,8 @@ class gui_manager:
 		self._future_comm_hdle = self._executer.submit(self.comm_hdle, self._exit_flag_comm_hdle, self._notify_from_serial, self._comm_hdle_notify)
 		self.wnd_proc()
 		self._executer.shutdown()
+		self.close()
+		print("Exit: all")
 
 	def wnd_proc(self):
 		while True:
@@ -760,6 +762,10 @@ class gui_manager:
 				t_ev, idx, col = event
 				self._events[t_ev](values, idx, col)
 			if event in (None, 'Quit'):
+				# 自動送信処理終了
+				node: autosend_mng
+				for i, node in enumerate(self._autosend_data):
+					node._enable = False
 				# 各スレッドに終了通知
 				#self._notify_to_serial.put([serial_mng.ThreadNotify.EXIT_TASK, None, None])
 				self._exit_flag_serial.put(True)
