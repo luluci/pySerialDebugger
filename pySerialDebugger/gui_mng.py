@@ -320,16 +320,20 @@ class autosend_mng:
 
 	def _run_impl(self, idx: int, timestamp: int) -> None:
 		if self._nodes[self._pos]._node_type == autosend_node.SEND:
-			self._run_impl_send(idx)
+			self._run_impl_send(idx, timestamp)
 		elif self._nodes[self._pos]._node_type == autosend_node.WAIT:
 			self._run_impl_wait(idx, timestamp)
 		elif self._nodes[self._pos]._node_type == autosend_node.JUMP:
-			self._run_impl_jump(idx)
+			self._run_impl_jump(idx, timestamp)
 		elif self._nodes[self._pos]._node_type == autosend_node.EXIT:
 			self._run_impl_exit(idx)
 
-	def _run_impl_send(self, idx: int) -> None:
+	def _run_impl_send(self, idx: int, timestamp: int) -> None:
+		# タイムスタンプ更新
+		self._timestamp = timestamp
+		# 送信実行
 		autosend_mng._send_cb(self._nodes[self._pos]._send_name_idx)
+		# 次のシーケンスへ遷移
 		self._next(idx)
 
 	def _run_impl_wait(self, idx: int, timestamp: int) -> None:
@@ -341,10 +345,13 @@ class autosend_mng:
 			diff = timestamp - self._timestamp
 			if diff >= self._nodes[self._pos]._wait_time:
 				# タイムスタンプ初期化
-				self._timestamp = 0
+				self._timestamp = timestamp
 				self._next(idx)
 
-	def _run_impl_jump(self, idx: int) -> None:
+	def _run_impl_jump(self, idx: int, timestamp: int) -> None:
+		# タイムスタンプ更新
+		self._timestamp = timestamp
+		# 指定のシーケンスへジャンプ
 		self._set_pos(idx, self._nodes[self._pos]._jump_to)
 
 	def _run_impl_exit(self, idx: int) -> None:
@@ -1456,7 +1463,7 @@ class gui_manager:
 		シリアル通信側で送信できずに詰まるとキューあふれを起こす点に注意。
 		"""
 		send = autosend_node.send		# 手動送信で設定した送信データ(名称で指定)を送信する
-		wait = autosend_node.wait_ms	# 指定時間だけwaitする(※100ms前後くらい処理時間ありそう。_autosend_sendで毎回送信データを更新しない, autosend_mng._gui_update_cbでGUIを更新しない, などで高速化する)
+		wait = autosend_node.wait_ms	# 指定時間だけwaitする(※100ms前後くらい処理時間ありそう。)
 		exit = autosend_node.exit		# 自動送信を終了する
 		jump = autosend_node.jump		# autosendリスト内の指定idx(0開始)にジャンプする
 
