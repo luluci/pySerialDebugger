@@ -576,14 +576,14 @@ class gui_manager:
 		"""
 		自動応答設定：送信HEXデータ入力GUIからの操作イベントハンドラ
 		"""
-		part = self._window[("resp", row, col)]
+		part: sg.Element = self._window[("resp", row, col)]
 		self._update_sendhex_gui(part, self._autoresp_data, self._autoresp_data_tx, "resp", row, col)
 
 	def _hdl_hex_ui_send(self, values, row, col):
 		"""
 		手動送信設定：送信HEXデータ入力GUIからの操作イベントハンドラ
 		"""
-		part = self._window[("send", row, col)]
+		part: sg.Element = self._window[("send", row, col)]
 		self._update_sendhex_gui(part, self._send_data, self._send_data_tx, "send", row, col)
 
 	def _gui_hdl_init(self):
@@ -1256,8 +1256,7 @@ class gui_manager:
 		return tgt
 
 
-
-	def _update_sendhex_gui(self, gui, def_data_list, bytes_list: List[bytes], key:str, row:int, gui_id:int) -> None:
+	def _update_sendhex_gui(self, gui: sg.Element, def_data_list, bytes_list: List[bytes], key: str, row: int, gui_id: int) -> None:
 		"""
 		送信HEXデータGUIの入力値チェック
 		"""
@@ -1279,10 +1278,10 @@ class gui_manager:
 		# FCC
 		fcc_pos = def_data_list[row][DataConf.FCC_POS]
 		fcc_id = def_data_list[row][DataConf.GUI_ID][fcc_pos]
-		fcc_gui = self._window[(key, row, fcc_id)]
+		fcc_gui: sg.Element = self._window[(key, row, fcc_id)]
 		self._update_gui_tx_data(fcc_gui, key, row, fcc_id, fcc_pos, def_data_list[row][DataConf.TX], bytes_list[row], "02X")
 
-	def _get_gui_tx_data(self, gui, key: str, row: int, col_size: int, tx_data) -> Tuple[bytes, int]:
+	def _get_gui_tx_data(self, gui: sg.Element, key: str, row: int, col_size: int, tx_data) -> Tuple[bytes, int]:
 		"""
 		GUI上の送信データ設定を取得する
 		"""
@@ -1291,7 +1290,7 @@ class gui_manager:
 		if isinstance(tx_data, List):
 			return self._get_gui_data_list(gui, key, row, col_size, tx_data)
 
-	def _get_gui_data_bytes(self, gui, key: str, row: int, col: int, tx_data: bytes) -> Tuple[bytes, int]:
+	def _get_gui_data_bytes(self, gui: sg.Element, key: str, row: int, col: int, tx_data: bytes) -> Tuple[bytes, int]:
 		"""
 		GUI上の送信データ設定を取得する
 		"""
@@ -1303,7 +1302,7 @@ class gui_manager:
 			data = "00"
 		return (bytes.fromhex(data), 1)
 
-	def _get_gui_data_list(self, gui, key: str, row: int, col: int, tx_data: List[gui_input]) -> Tuple[bytes, int]:
+	def _get_gui_data_list(self, gui: sg.Element, key: str, row: int, col: int, tx_data: List[gui_input]) -> Tuple[bytes, int]:
 		"""
 		GUI上の送信データ設定を取得する
 		"""
@@ -1336,7 +1335,7 @@ class gui_manager:
 		if isinstance(tx_data, List):
 			return self._update_gui_tx_data_list(gui, key, row, gui_id, bytes_idx, tx_data, txs, fmt)
 
-	def _update_gui_tx_data_bytes(self, gui, key: str, row: int, gui_id: int, bytes_idx: int, tx_data: bytes, txs: bytes, fmt: str) -> bytes:
+	def _update_gui_tx_data_bytes(self, gui: sg.Element, key: str, row: int, gui_id: int, bytes_idx: int, tx_data: bytes, txs: bytes, fmt: str) -> bytes:
 		"""
 		GUI上の送信データ設定を更新する
 		"""
@@ -1344,7 +1343,7 @@ class gui_manager:
 			fmt = "X"
 		gui.Update(value=format(txs[gui_id], fmt))
 
-	def _update_gui_tx_data_list(self, gui, key: str, row: int, gui_id: int, bytes_idx: int, tx_data: List[gui_input], txs: bytes, fmt: str):
+	def _update_gui_tx_data_list(self, gui: sg.Element, key: str, row: int, gui_id: int, bytes_idx: int, tx_data: List[gui_input], txs: bytes, fmt: str):
 		"""
 		GUI上の送信データ設定を更新する
 		"""
