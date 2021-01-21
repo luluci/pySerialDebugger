@@ -14,9 +14,18 @@ class gui_input:
 
 	"""
 	# inputノードタイプ
-	INPUT, SELECT, FIX = range(0,3)
+	INPUT, SELECT, FIX, BITFIELD = range(0,4)
+	# BITFILED
+	# bit_order: right
+	#  0bXXXXYYZZ
+	#    ||||||++-bf(0)
+	#    ||||++---bf(1)
+	#    ++++-----bf(2)
+	# type : Tuple[gui_input, int]
+	# BITFIELD 要素idx定義
+	BF_NODE, BF_SIZE = range(0,2)
 	
-	def __init__(self, type: int, size: int, name: str, value: int, values: Dict[str,int], endian:str) -> None:
+	def __init__(self, type: int, size: int, name: str, value: int, values: Any, endian:str) -> None:
 		# inputノードタイプを設定
 		if (type is None) or (size is None):
 			raise Exception("gui_input node require [type, size]")
@@ -31,9 +40,13 @@ class gui_input:
 		if type == gui_input.INPUT:
 			self._init_input(name, value)
 		if type == gui_input.SELECT:
+			values: Dict[str, int]
 			self._init_select(name, values)
 		if type == gui_input.FIX:
 			self._init_input(name, value)
+		if type == gui_input.BITFIELD:
+			values: List[Tuple[gui_input, int]]
+			self._init_bitfield(name, values)
 
 	def _init_input(self, name: str, value: int):
 		if (name is None) or (value is None):
@@ -50,6 +63,30 @@ class gui_input:
 		for val in values.values():
 			self.value = val
 			break
+
+	def _init_bitfield(self, name: str, values):
+		values: List[Tuple[gui_input, int]]
+		if (name is None) or (values is None):
+			raise Exception("gui_input: BITFIELD node require [name, values]")
+		self.name = name
+		self.values = values
+		# bitfiled info
+		self.bf_size_tbl = [0] * len(values)
+		# 初期値設定
+		value = 0
+		val: Tuple[gui_input, int]
+		bf_pos = 0
+		for i, val in enumerate(values):
+			# 情報取得
+			self.bf_size_tbl[i] = val[gui_input.BF_SIZE]
+			gui = val[gui_input.BF_NODE]
+			# 初期値作成
+			value |= (gui.value << bf_pos)
+			# bf_pos更新
+			bf_pos += val[gui_input.BF_SIZE]
+		# サイズチェック
+		if self.size < bf_pos:
+			raise Exception("gui_input: BITFIELD values takes too large bit_size.")
 
 	@classmethod
 	def input(cls, hex: str):
@@ -74,6 +111,11 @@ class gui_input:
 	@classmethod
 	def fix(cls, hex: str):
 		return gui_input(gui_input.FIX, 8, "kari", int(hex, 16), None, None)
+
+	@classmethod
+	def bf(cls, values: List[any]):
+		values: List[Tuple[gui_input, int]]
+		return gui_input(gui_input.BITFIELD, 8, "kari", None, values, None)
 
 	def get_size(self) -> int:
 		return int(self.size / 8)
@@ -124,6 +166,8 @@ class gui_input:
 			return self._get_bytes_select()
 		if self.type == gui_input.FIX:
 			return self._get_bytes_input()
+		if self.type == gui_input.BITFIELD:
+			return self._get_bytes_bitfield()
 		raise Exception("unknown node type detected!")
 
 	def _get_bytes_input(self) -> bytes:
@@ -140,6 +184,11 @@ class gui_input:
 				def_val = self.values[data]
 		return def_val.to_bytes(byte_size, self.endian)
 
+	def _get_bytes_bitfield(self) -> bytes:
+		# size取得
+		byte_size = self.get_size()
+		return b'\88'
+
 	def get_gui(self, key, size, pad, font) -> Any:
 		# タイプごとに処理
 		if self.type == gui_input.INPUT:
@@ -148,6 +197,8 @@ class gui_input:
 			return self._get_gui_select(key, size, pad, font)
 		if self.type == gui_input.FIX:
 			return self._get_gui_fix(key, size, pad, font)
+		if self.type == gui_input.BITFIELD:
+			return self._get_gui_bitfield(key, size, pad, font)
 		raise Exception("unknown node type detected!")
 
 	def _get_gui_input(self, key, size, pad, font):
@@ -180,22 +231,36 @@ class gui_input:
 		size = (size[0] * byte_size, size[1])
 		return sg.Input(format(self.value, gui_form), key=key, size=size, pad=pad, font=font, enable_events=True, disabled=True, disabled_readonly_background_color=sg.theme_background_color(), disabled_readonly_text_color=sg.theme_element_text_color())
 
-	def get_gui_value(self) -> str:
+	def _get_gui_bitfield(self, key, size, pad, font):
+		# size取得
+		byte_size = self.get_size()
+		# GUI調整
+		gui_list = []
+		def_val = None
+		size = (size[0]*byte_size-2, size[1])
+		col_size = (44, 40)
+		for bf_idx, data in enumerate(self.values):
+			gui: gui_input = data[gui_input.BF_NODE]
+			gui_list.append([gui.get_gui(("gui_input_bf", key, bf_idx), size, pad, font)])
+		return sg.Column(gui_list, key=key, size=col_size, pad=pad)
+
+	def get_gui_value(self, fmt:str = None) -> str:
 		# タイプごとに処理
 		if self.type == gui_input.INPUT:
-			return self._get_gui_value_input()
+			return self._get_gui_value_input(fmt)
 		if self.type == gui_input.SELECT:
 			return self._get_gui_value_select()
 		if self.type == gui_input.FIX:
 			return self._get_gui_value_input()
 		raise Exception("unknown node type detected!")
 
-	def _get_gui_value_input(self) -> str:
+	def _get_gui_value_input(self, fmt:str) -> str:
 		# size取得
 		byte_size = self.get_size()
 		# GUI調整
-		gui_form = "0" + format(byte_size * 2) + "X"
-		return format(self.value, gui_form)
+		if fmt is None:
+			fmt = "0" + format(byte_size * 2) + "X"
+		return format(self.value, fmt)
 
 	def _get_gui_value_select(self) -> str:
 		def_val = None
@@ -1134,6 +1199,9 @@ class gui_manager:
 			if isinstance(resp[DataConf.TX], List):
 				tx_data = self._settings_construct_bytes(resp[DataConf.TX])
 			self._autoresp_data_tx.append(tx_data)
+			# 送信データ長まで0埋め
+			for j in range(len(self._autoresp_data_tx[i]), resp_len):
+				self._autoresp_data_tx[i]  += b'\0'
 			# FCC算出
 			self._autoresp_data_tx[i] = self._update_fcc(self._autoresp_data_tx[i], resp[DataConf.FCC_POS], resp[DataConf.FCC_BEGIN], resp[DataConf.FCC_END])
 			# FCC算出結果を送信データ定義に反映する。
@@ -1171,6 +1239,9 @@ class gui_manager:
 			if isinstance(data[DataConf.TX], List):
 				tx_data = self._settings_construct_bytes(data[DataConf.TX])
 			self._send_data_tx.append(tx_data)
+			# 送信データ長まで0埋め
+			for j in range(len(self._send_data_tx[i]), data_len):
+				self._send_data_tx[i] += b'\0'
 			# FCC算出
 			self._send_data_tx[i] = self._update_fcc(self._send_data_tx[i], data[DataConf.FCC_POS], data[DataConf.FCC_BEGIN], data[DataConf.FCC_END])
 			# 名称-送信データHEX対応付けテーブルを作成
@@ -1352,7 +1423,7 @@ class gui_manager:
 		tx_len = len(tx_data)
 		if gui_id < tx_len:
 			# gui_input定義があるとき
-			gui.Update(value=tx_data[gui_id].get_gui_value())
+			gui.Update(value=tx_data[gui_id].get_gui_value(fmt))
 		else:
 			# gui_input定義がないとき
 			gui.Update(value=format(txs[bytes_idx], fmt))
@@ -1418,6 +1489,7 @@ class gui_manager:
 		inp16 = gui_input.input_16
 		sel = gui_input.select
 		fix = gui_input.fix
+		bf = gui_input.bf
 
 		self._autoresp_caption = [
 			"[自動応答データ設定]", "", "応答データ"
@@ -1433,7 +1505,7 @@ class gui_manager:
 			[	True,		"Test3",		hex('ABCD03'),					hex('aa00bb11cc22dd33ee44'),	24,			-1,			0,				9,					],
 			# 応答なし設定(応答データ＝空)で受信データパターンマッチ時に受信データ＋名称だけ出力
 			[	False,		"Test4",		hex('ABCDEF0102'),				b'',	0,	-1,	0,	0,	],
-			[	False,		"Test5",		hex('ABCD0102'),				[inp('aa'), sel({'機能ON': 1, '機能OFF': 0}), fix('00'), inp16('8000'), fix('00'), fix('00'), fix('00'), fix('00')],	18,			17,			1,				16,					],
+			[	False,		"Test5",		hex('ABCD0102'),				[inp('aa'), sel({'機能ON': 1, '機能OFF': 0}), fix('00'), inp16('8000'), bf([(fix('AA'), 3), (fix('BB'), 5)]), fix('00'), fix('00'), fix('00')],	18,			17,			1,				16,					],
 		]
 
 	def _send_settings(self) -> None:
