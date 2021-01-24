@@ -113,9 +113,14 @@ class gui_input:
 		return gui_input(gui_input.FIX, 8, "kari", int(hex, 16), None, None)
 
 	@classmethod
-	def bf(cls, values: List[any]):
+	def bf(cls, values: List[any], size:int = 8):
 		values: List[Tuple[gui_input, int]]
-		return gui_input(gui_input.BITFIELD, 8, "kari", None, values, None)
+		return gui_input(gui_input.BITFIELD, size, "kari", None, values, None)
+
+	@classmethod
+	def bf_16(cls, values: List[any]):
+		values: List[Tuple[gui_input, int]]
+		return gui_input(gui_input.BITFIELD, 16, "kari", None, values, None)
 
 	def get_size(self) -> int:
 		return int(self.size / 8)
@@ -234,15 +239,16 @@ class gui_input:
 	def _get_gui_bitfield(self, key, size, pad, font):
 		# size取得
 		byte_size = self.get_size()
+		item_size = len(self.values)
 		# GUI調整
 		gui_list = []
 		def_val = None
-		size = (size[0]*byte_size-2, size[1])
-		col_size = (44, 40)
+		size = (size[0]*byte_size, size[1])
+		col_size = (44*byte_size, 20*item_size)
 		for bf_idx, data in enumerate(self.values):
 			gui: gui_input = data[gui_input.BF_NODE]
 			gui_list.append([gui.get_gui(("gui_input_bf", key, bf_idx), size, pad, font)])
-		return sg.Column(gui_list, key=key, size=col_size, pad=pad)
+		return sg.Column(gui_list, key=key, size=col_size, pad=pad, vertical_alignment="top")
 
 	def get_gui_value(self, fmt:str = None) -> str:
 		# タイプごとに処理
@@ -543,7 +549,7 @@ class gui_manager:
 			*self._layout_autoresp_data
 		]
 		layout_serial_auto_resp_column = [
-			[sg.Column(layout_serial_auto_resp, scrollable=True, vertical_scroll_only=False, size=(1450, 280))],
+			[sg.Column(layout_serial_auto_resp, scrollable=True, vertical_scroll_only=False, size=(1450, 280), vertical_alignment="top")],
 			[sg.Button("Update", key="btn_autoresp_update", size=(15, 1), enable_events=True)],
 		]
 		# Define: Send View
@@ -562,7 +568,7 @@ class gui_manager:
 			],
 		]
 		layout_serial_send_column = [
-			[sg.Column(layout_serial_send, scrollable=True, vertical_scroll_only=False, size=(1450, 280))],
+			[sg.Column(layout_serial_send, scrollable=True, vertical_scroll_only=False, size=(1450, 280), vertical_alignment="top")],
 			[sg.Frame("Send Option:", layout_serial_send_option)],
 		]
 		# Define: AutoSend View
@@ -572,7 +578,7 @@ class gui_manager:
 			*self._layout_autosend_data
 		]
 		layout_serial_autosend_column = [
-			[sg.Column(layout_serial_autosend, scrollable=True, vertical_scroll_only=False, size=(1450, 280))],
+			[sg.Column(layout_serial_autosend, scrollable=True, vertical_scroll_only=False, size=(1450, 280), vertical_alignment="top")],
 		]
 		# Define: log View
 		layout_serial_log_col = [
@@ -1490,6 +1496,7 @@ class gui_manager:
 		sel = gui_input.select
 		fix = gui_input.fix
 		bf = gui_input.bf
+		bf16 = gui_input.bf_16
 
 		self._autoresp_caption = [
 			"[自動応答データ設定]", "", "応答データ"
@@ -1505,7 +1512,7 @@ class gui_manager:
 			[	True,		"Test3",		hex('ABCD03'),					hex('aa00bb11cc22dd33ee44'),	24,			-1,			0,				9,					],
 			# 応答なし設定(応答データ＝空)で受信データパターンマッチ時に受信データ＋名称だけ出力
 			[	False,		"Test4",		hex('ABCDEF0102'),				b'',	0,	-1,	0,	0,	],
-			[	False,		"Test5",		hex('ABCD0102'),				[inp('aa'), sel({'機能ON': 1, '機能OFF': 0}), fix('00'), inp16('8000'), bf([(fix('AA'), 3), (fix('BB'), 5)]), fix('00'), fix('00'), fix('00')],	18,			17,			1,				16,					],
+			[	False,		"Test5",		hex('ABCD0102'),				[inp('aa'), sel({'機能ON': 1, '機能OFF': 0}), fix('00'), inp16('8000'), bf16([(fix('AA'), 3), (fix('BB'), 5), (fix('CC'), 8)]), bf([(fix('DD'), 3), (fix('EE'), 5)], 8), fix('00'), fix('00'), fix('00')],	18,			17,			1,				16,					],
 		]
 
 	def _send_settings(self) -> None:
