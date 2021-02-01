@@ -465,8 +465,8 @@ class DataConf:
 	FCC_POS = 5		# FCC挿入位置
 	FCC_BEGIN = 6	# FCC計算開始位置
 	FCC_END = 7		# FCC計算終了位置
-	GUI_ID = 8		# bytes上の位置とGUI上のcolとの対応付けテーブル
-
+	GUI_ID = 8		# bytes上の位置とGUI上の位置との対応付けテーブル
+	BYTES_ID = 9	# GUI上の位置とbytes上の位置との対応付けテーブル
 
 class ThreadNotify(enum.Enum):
 	"""
@@ -1165,6 +1165,7 @@ class gui_manager:
 		gui_size = 0
 		bytes_idx = 0
 		bytes_gui_tbl = [0] * size
+		gui_bytes_tbl = [0] * size
 		while bytes_idx < size:
 			# GUI部品を作成する
 			if bytes_idx < tx_len:
@@ -1175,7 +1176,8 @@ class gui_manager:
 				# gui_inputが存在しなければ自動生成
 				parts.append(fix(format(tx_hex[bytes_idx], "02X")).get_gui((key, idx, gui_id), self._size_tx, self._pad_tx, self._font_tx))
 				gui_size = 1
-			# bytes上の位置とGUI上のcolとの対応付けテーブルを作成
+			# bytes上の位置とGUI上のcolとの対応付けテーブルを双方向で作成
+			gui_bytes_tbl[gui_id] = bytes_idx
 			for i in range(0, gui_size):
 				bytes_gui_tbl[bytes_idx] = gui_id
 				bytes_idx += 1
@@ -1183,6 +1185,7 @@ class gui_manager:
 			gui_id += 1
 		# bytes上の位置とGUI上のcolとの対応付けテーブルをデータに格納
 		tx_data.append(bytes_gui_tbl)
+		tx_data.append(gui_bytes_tbl)
 		return parts
 
 	def _auto_response_settings_construct(self) -> None:
@@ -1342,7 +1345,8 @@ class gui_manager:
 		# 送信HEXを更新
 		temp_hex = bytearray(bytes_list[row])
 		data_idx = 0
-		for idx in range(gui_id, gui_id+size):
+		bytes_id = def_data_list[row][DataConf.BYTES_ID][gui_id]
+		for idx in range(bytes_id, bytes_id+size):
 			temp_hex[idx] = data[data_idx]
 			data_idx += 1
 		bytes_list[row] = bytes(temp_hex)
@@ -1519,6 +1523,7 @@ class gui_manager:
 		hex = self._hex2bytes
 		inp = gui_input.input
 		inp16 = gui_input.input_16
+		inp16be = gui_input.input_16be
 		sel = gui_input.select
 		fix = gui_input.fix
 
@@ -1535,7 +1540,7 @@ class gui_manager:
 			[	None,		"TestSend1",	None,			hex('00112233'),			-1,			4,			0,				3,				],
 			[	None,		"TestSend2",	None,			hex('00'),					5,			-1,			0,				3,				],
 			[	None,		"TestSend3",	None,			hex(''),					0,			-1,			0,				3,				],
-			[	None,		"TestSend4",	None,			[ inp('aa'), sel({'ON':1, 'OFF':0}), fix('00'), fix('00'), fix('00'), fix('00'), fix('00'), inp16('8000') ],	18,			17,			1,				16,					],
+			[	None,		"TestSend4",	None,			[ inp('aa'), sel({'ON':1, 'OFF':0}), fix('00'), fix('00'), inp16be('1234'), inp('56'), inp16('8000'), fix('9A') ],	18,			17,			1,				16,					],
 		]
 
 	def _autosend_settings(self) -> None:
