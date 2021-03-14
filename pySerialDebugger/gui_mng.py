@@ -3,11 +3,13 @@ import concurrent.futures
 from typing import Any, Callable, Union, List, Type, Dict, Tuple
 import PySimpleGUI as sg
 from PySimpleGUI.PySimpleGUI import Input
-from . import serial_mng
 from multiprocessing import Array, Value
 import queue
 import re
 import enum
+from . import serial_mng
+from .autoresp import autoresp_data, autoresp_list, autoresp_mng
+from . import user_settings
 
 class gui_input:
 	"""
@@ -541,17 +543,6 @@ class gui_manager:
 		]
 		# GUI共通部品定義
 		self._gui_param_init()
-		# Define: AutoResponse View
-		self._auto_response_init()
-		layout_serial_auto_resp = [
-			self._layout_autoresp_caption,
-			self._layout_autoresp_head,
-			*self._layout_autoresp_data
-		]
-		layout_serial_auto_resp_column = [
-			[sg.Column(layout_serial_auto_resp, scrollable=True, vertical_scroll_only=False, size=(1450, 280), vertical_alignment="top")],
-			[sg.Button("Update", key="btn_autoresp_update", size=(15, 1), enable_events=True)],
-		]
 		# Define: Send View
 		self._send_init()
 		layout_serial_send = [
@@ -579,6 +570,17 @@ class gui_manager:
 		]
 		layout_serial_autosend_column = [
 			[sg.Column(layout_serial_autosend, scrollable=True, vertical_scroll_only=False, size=(1450, 280), vertical_alignment="top")],
+		]
+		# Define: AutoResponse View
+		self._auto_response_init()
+		layout_serial_auto_resp = [
+			self._layout_autoresp_caption,
+			self._layout_autoresp_head,
+			*self._layout_autoresp_data
+		]
+		layout_serial_auto_resp_column = [
+			[sg.Column(layout_serial_auto_resp, scrollable=True, vertical_scroll_only=False, size=(1450, 280), vertical_alignment="top")],
+			[sg.Button("Update", key="btn_autoresp_update", size=(15, 1), enable_events=True)],
 		]
 		# Define: log View
 		layout_serial_log_col = [
@@ -1007,60 +1009,81 @@ class gui_manager:
 		self._active_box = '#F0F000'
 		self._deactive_box = sg.theme_element_text_color()
 
+	def _gui_build_input(self):
+		"""
+		Input GUI 構築クロージャ
+		"""
+		size = self._size_tx
+		font = self._font_tx
+		disabled = True
+		pad = self._pad_tx
+		disabled_readonly_background_color = sg.theme_background_color()
+		disabled_readonly_text_color = sg.theme_element_text_color()
+		def build(data:str):
+			return sg.Input(data, size=size, font=font, disabled=disabled, pad=pad, disabled_readonly_background_color=disabled_readonly_background_color, disabled_readonly_text_color=disabled_readonly_text_color)
+		return build
+
 	def _auto_response_init(self) -> None:
 		"""
 		_auto_response_settings の設定内容をGUI上に構築する。
 		以降はGUI上で更新されたら解析情報に反映する。
 		"""
 		# 定義を読み込む
-		self._auto_response_settings()
-		# 定義解析
-		self._auto_response_settings_construct()
-		# GUIに落とし込む
-		# 最大送信データ長を算出、ヘッダ構築に利用
-		# TX_SIZEはconstructで更新済み
-		# 固定ヘッダの分を最後に足す
-		resp_len_max = 0
-		for resp in self._autoresp_data:
-			if resp[DataConf.TX_SIZE] > resp_len_max:
-				resp_len_max = resp[DataConf.TX_SIZE]
-		resp_len_max += DataConf.RX + 1
-		# Make Caption
+		gui_settings = user_settings.auto_response_settings()
+		self._autoresp_caption = gui_settings[0]
+		self._autoresp_head = gui_settings[1]
+		self._autoresp_data = gui_settings[2]
+		# 受信解析マネージャ作成
+		# コンストラクタで解析ツリーを構築、
+		# 自動応答enableが重複したときは自動でdisableに変更する。
+		# このあとにGUI構築すること
+		self._autoresp_mng = autoresp_mng(self._autoresp_data)
+		autoresp_data.set_gui_info(self._size_tx, self._pad_tx, self._font_tx)
+		# 受信解析マネージャをシリアルマネージャに渡す
+		self._serial.autoresp(self._autoresp_mng)
+		# GUI構築
+		input = self._gui_build_input()
+		# Layout: Caption
 		self._layout_autoresp_caption = []
 		self._layout_autoresp_caption.append(sg.Text(self._autoresp_caption[0], size=self._size_caption, font=self._font_name))
-		self._layout_autoresp_caption.append(sg.Text(self._autoresp_caption[1], size=self._size_caption, font=self._font_name)) 
-		self._layout_autoresp_caption.append(sg.Text(self._autoresp_caption[2], size=self._size_caption, font=self._font_name)) 
-		# Make Header
-		# 有効無効,Name,Recvは固定とする
-		# ヘッダ定義がデータ最大に足りなかったら穴埋めする
-		head_max = len(self._autoresp_head)
+		#self._layout_autoresp_caption.append(sg.Text(self._autoresp_caption[1], size=self._size_caption, font=self._font_name))
+		#self._layout_autoresp_caption.append(sg.Text(self._autoresp_caption[2], size=self._size_caption, font=self._font_name))
+		# Layout: Header
 		self._layout_autoresp_head = []
-		self._layout_autoresp_head.append(sg.Text(self._autoresp_head[DataConf.ENABLE], size=self._size_enable, font=self._font_enable))
-		self._layout_autoresp_head.append(sg.Text(self._autoresp_head[DataConf.NAME], size=self._size_name, font=self._font_header))
-		self._layout_autoresp_head.append(sg.Text(self._autoresp_head[DataConf.RX], size=self._size_rx, font=self._font_header))
-		head_suffix = ""
-		if head_max < resp_len_max:
-			head_suffix = self._autoresp_head[head_max-1]
-			self._autoresp_head[head_max-1] = head_suffix + "[1]"
-		self._layout_autoresp_head.extend([sg.Input(self._autoresp_head[i], size=self._size_tx, font=self._font_tx, disabled=True, pad=self._pad_tx, disabled_readonly_background_color=sg.theme_background_color(), disabled_readonly_text_color=sg.theme_element_text_color()) for i in range(DataConf.RX+1, head_max)])
-		if head_max < resp_len_max:
-			self._layout_autoresp_head.extend( [sg.Input(head_suffix + "[" + str(i - head_max + 2) + "]", size=self._size_tx, font=self._font_tx, disabled=True, pad=self._pad_tx, disabled_readonly_background_color=sg.theme_background_color(), disabled_readonly_text_color=sg.theme_element_text_color()) for i in range(head_max, resp_len_max)])
-		# Make Values
+		self._layout_autoresp_head.append(sg.Text(self._autoresp_head[autoresp_list.ENABLE], size=self._size_enable, font=self._font_enable))
+		self._layout_autoresp_head.append(sg.Text(self._autoresp_head[autoresp_list.ID], size=self._size_name, font=self._font_header))
+		self._layout_autoresp_head.extend( [ input(data) for data in self._autoresp_head[autoresp_list.DATA] ] )
+		self._layout_autoresp_head.append(sg.Text(self._autoresp_head[autoresp_list.SENDDATA_ID], size=self._size_rx, font=self._font_header))
+		# Layout: Data
 		self._layout_autoresp_data = []
 		for resp in self._autoresp_data:
 			# GUI処理
 			# Add empty list
-			idx = len(self._layout_autoresp_data)
+			row = len(self._layout_autoresp_data)
 			parts = []
 			# Add AutoResponse_Enable
-			parts.append(sg.Checkbox("", default=resp[DataConf.ENABLE], key=("autoresp_enable",idx, None), size=(2, 1), font=self._font_enable))
-			# Add Name,Recv col
-			parts.append(sg.Text(resp[DataConf.NAME], size=self._size_name, font=self._font_name))
-			parts.append(sg.Text(resp[DataConf.RX].hex().upper(), size=self._size_rx, font=self._font_rx))
-			# Add resp data col
-			parts.extend(self._init_gui_tx("resp", idx, resp, self._autoresp_data_tx[idx]))
+			parts.append(sg.Checkbox("", default=resp[autoresp_list.ENABLE], key=("autoresp_enable",row, None), size=(2, 1), font=self._font_enable))
+			# Add Name
+			parts.append(sg.Text(resp[autoresp_list.ID], size=self._size_name, font=self._font_name))
+			# Add RecvData
+			parts.extend(self._init_gui_rx("resp", row, resp))
+			# Add SendDataID
+			parts.append(sg.Text(resp[autoresp_list.SENDDATA_ID], size=self._size_name, font=self._font_name))
 			# GUI更新
 			self._layout_autoresp_data.append(parts)
+
+	def _init_gui_rx(self, key: str, row: int, rx_data: List[any]):
+		data_list = rx_data[autoresp_list.DATA]
+		gui_parts = []
+		col = 0
+		# autoresp_dataをすべてチェック
+		for data in data_list:
+			data: autoresp_data
+			temp = data.get_gui(key, row, col)
+			col += len(temp)
+			gui_parts.extend(temp)
+		# 結果を返す
+		return gui_parts
 
 	def _send_init(self) -> None:
 		# 定義を読み込む
@@ -1188,44 +1211,6 @@ class gui_manager:
 		tx_data.append(gui_bytes_tbl)
 		return parts
 
-	def _auto_response_settings_construct(self) -> None:
-		# 実送信データHEXを別データとして保持する
-		self._autoresp_data_tx = []
-		for i, resp in enumerate(self._autoresp_data):
-			### 送信データ長を算出
-			# 送信データHEX長と送信データサイズを比較
-			tx_len = self._calc_data_len(resp[DataConf.TX])
-			resp_len = max(tx_len, resp[DataConf.TX_SIZE])
-			# FCCを反映, FCC位置がデータ長よりも外側にあるとき
-			if resp[DataConf.FCC_POS] >= resp_len:
-				resp_len = resp[DataConf.FCC_POS] + 1
-			# 定義データを更新
-			resp[DataConf.TX_SIZE] = resp_len
-			### 送信データHEXを構築
-			tx_data = None
-			if isinstance(resp[DataConf.TX], bytes):
-				tx_data = resp[DataConf.TX]
-			if isinstance(resp[DataConf.TX], List):
-				tx_data = self._settings_construct_bytes(resp[DataConf.TX])
-			self._autoresp_data_tx.append(tx_data)
-			# 送信データ長まで0埋め
-			for j in range(len(self._autoresp_data_tx[i]), resp_len):
-				self._autoresp_data_tx[i]  += b'\0'
-			# FCC算出
-			self._autoresp_data_tx[i] = self._update_fcc(self._autoresp_data_tx[i], resp[DataConf.FCC_POS], resp[DataConf.FCC_BEGIN], resp[DataConf.FCC_END])
-			# FCC算出結果を送信データ定義に反映する。
-			# FCC位置設定が送信データ定義内にあった場合に有効となる。範囲外の場合はGUI設定の方で反映する。
-			if isinstance(resp[DataConf.TX], List):
-				idx = 0
-				tx: gui_input
-				for tx in resp[DataConf.TX]:
-					tx.set_value(self._autoresp_data_tx[i], idx)
-					idx += tx.get_size()
-			# 送信データHEXをデータサイズまで00埋めする
-			for idx in range(len(self._autoresp_data_tx[i]), resp[DataConf.TX_SIZE]):
-				self._autoresp_data_tx[i] += b'\0'
-			# SerialManagaerに通知して解析ツリーを構築
-			self._serial.autoresp_build(resp[DataConf.NAME], resp[DataConf.RX], self._autoresp_data_tx[i], resp[DataConf.ENABLE])
 
 	def _send_settings_construct(self) -> None:
 		# 実送信データHEXを別データとして保持する
@@ -1269,7 +1254,8 @@ class gui_manager:
 		autosend_mng.set_exit_cb(self._autosend_exit)
 		autosend_mng.set_gui_update_cb(self._autosend_gui_update)
 		# 自動送信データ定義をチェック
-		for idx, data in enumerate(self._autosend_data):
+		for idx, autosend in enumerate(self._autosend_data):
+			data = autosend[2]
 			# autosendノードチェック
 			for node in data:
 				node: autosend_node
@@ -1488,37 +1474,6 @@ class gui_manager:
 	def _hex2bytes(self, hex: str) -> bytes:
 		return bytes.fromhex(hex)
 
-
-	def _auto_response_settings(self) -> None:
-		"""
-		Auto Response Settings
-		自動応答の定義はここを編集する
-		"""
-		hex = self._hex2bytes
-		inp = gui_input.input
-		inp16 = gui_input.input_16
-		sel = gui_input.select
-		fix = gui_input.fix
-		bf = gui_input.bf
-		bf16 = gui_input.bf_16
-
-		self._autoresp_caption = [
-			"[自動応答データ設定]", "", "応答データ"
-		]
-		self._autoresp_head = [
-			"[Act]", "[Name]", "[Recv]", "ST", "XX", "XX", "XX", "XX", "YY"
-		]
-		self._autoresp_data = [
-							# 応答			# 自動応答対象					# 応答データ定義							# FCC定義(idx=0開始, 挿入位置=-1でFCC設定無効)
-				#有効		# 名称			# 受信データパターン			# 送信HEX						# サイズ	# 挿入位置	# 計算開始位置	# 計算終了位置
-#			[	True,		"Test1",		hex('ABCDEF0102'),				hex('aaBBccDDeeFF'),			24,			6,			2,				4,					],
-			[	True,		"Test2",		hex('ABCD0102'),				hex('aa00bb11cc22dd33ee44'),	24,			12,			6,				7,					],
-			[	True,		"Test3",		hex('ABCD03'),					hex('aa00bb11cc22dd33ee44'),	24,			-1,			0,				9,					],
-			# 応答なし設定(応答データ＝空)で受信データパターンマッチ時に受信データ＋名称だけ出力
-			[	False,		"Test4",		hex('ABCDEF0102'),				b'',	0,	-1,	0,	0,	],
-			[	False,		"Test5",		hex('ABCD0102'),				[inp('aa'), sel({'機能ON': 1, '機能OFF': 0}), fix('00'), inp16('8000'), bf16([(fix('AA'), 3), (fix('BB'), 5), (fix('CC'), 8)]), bf([(fix('DD'), 3), (fix('EE'), 5)], 8), fix('00'), fix('00'), fix('00')],	18,			17,			1,				16,					],
-		]
-
 	def _send_settings(self) -> None:
 		hex = self._hex2bytes
 		inp = gui_input.input
@@ -1560,10 +1515,11 @@ class gui_manager:
 			"[AutoSend]", "自動送信パターン",
 		]
 		self._autosend_data = [
-			[send("TestSend1"), wait(1000), send("TestSend2"), wait(1000)],
-			[send("TestSend4"), exit()],
-			[send("TestSend1"), wait(100), send("TestSend2"), wait(100), send("TestSend1"), wait(100), send("TestSend2"), jump(3)],
+			[	False,		"",			[send("TestSend1"), wait(1000), send("TestSend2"), wait(1000)]],
+			[	False,		"",			[send("TestSend4"), exit()]],
+			[	False,		"",			[send("TestSend1"), wait(100), send("TestSend2"), wait(100), send("TestSend1"), wait(100), send("TestSend2"), jump(3)]],
 		]
+
 
 
 
