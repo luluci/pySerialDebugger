@@ -30,11 +30,11 @@ def auto_response_settings():
 		data = [
 				#有効		# 受信値		# 自動応答対象							# 応答データ名
 				#設定		# 名称			# 受信データパターン					# (自動送信設定)
-			[	False,		"Test1",		[hex('00'), any(1), hex('02')],		""],
-			[	False,		"Test2",		[hex('00'), hex('01'), any(1)],		""],
-			[	False,		"Test3",		[hex('01'), any(1), hex('02')],		""],
-			[	False,		"Test4",		[any(1), any(1), hex('02')],		""],
-			[	False,		"Test5",		[any(1), any(1), hex('00')],		""],
+			[	True,		"Test1",		[hex('00'), any(1), hex('02')],		""],
+			[	True,		"Test2",		[hex('00'), hex('01'), any(1)],		""],
+			[	True,		"Test3",		[hex('01'), any(1), hex('02')],		""],
+			[	True,		"Test4",		[any(1), any(1), hex('02')],		""],
+			[	True,		"Test5",		[any(1), any(1), hex('00')],		""],
 		]
 	if False:
 		data = [
