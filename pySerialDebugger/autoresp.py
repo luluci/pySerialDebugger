@@ -160,8 +160,9 @@ class analyze_result:
 		pass
 
 	def set_analyze_succeeded(self, tail_node: autoresp_tail_node):
-		self.id = tail_node.id
-		self.tail_node = tail_node
+		if tail_node is not None:
+			self.id = tail_node.id
+			self.tail_node = tail_node
 		# フラグ設定
 		self._autoresp_send = True
 		self._rx_buf_push = True
@@ -222,18 +223,15 @@ class autoresp_mng:
 			data5: **0
 			(1文字1バイト、*=any)
 		次の通りに解析ツリーを構築する
-			[root]	->	0	->	1	->	2
-									->	*
-									->	0
+			[root]	->	0	->	1	->	*
 							->	*	->	2
-									->	0
 					->	1	->	*	->	2
-					->	*	->	1	->	*
-							->	*	->	0
+					->	*	->	*	->	0
 									->	2
-		anyと通常定義が重複した場合、ツリーのクローンを作成した上で、
-		両方のツリーに新しい枝を追加していく必要がある。
-		末端で重複した場合はNG。先優先で、後から出現した方は強制的にdisableとする。
+		常にanyより固定値を優先する。
+		anyと固定値をマージしたツリーを構築したいとき、
+		辿ったパスを記憶しておき、tail到達時にどのルールにマッチするか判定が必要になる。
+		動的に構築するのは難しいため、anyと固定値のマージはしない。状態遷移組め。
 		"""
 		for i, resp in enumerate(autoresp):
 			# 解析ツリーを構築
@@ -253,12 +251,12 @@ class autoresp_mng:
 							# elseノード作成
 							node.next_else = autoresp_node()
 							# elseノードはnextノードも内包する
-							self._maketree_clone_next2else(node, autoresp)
+							#self._maketree_clone_next2else(node, autoresp)
 						# elseノードを次状態として登録
 						next_node.append(node.next_else)
 						# 既存のnextノードもすべて、次状態以降の設定を追加する
-						for next in node.next.values():
-							next_node.append(next)
+						#for next in node.next.values():
+						#	next_node.append(next)
 					# 次の遷移設定
 					tgt_node = next_node
 
@@ -279,8 +277,8 @@ class autoresp_mng:
 								next_node_ref = node.next[hex]
 							next_node.append(next_node_ref)
 							# elseノードチェック
-							if node.next_else is not None:
-								next_node.append(node.next_else)
+							#if node.next_else is not None:
+							#	next_node.append(node.next_else)
 						# 次の遷移設定
 						tgt_node = next_node
 			# tailノード作成
@@ -501,16 +499,16 @@ class autoresp_mng:
 if __name__ == "__main__":
 	hex = autoresp_data.byte
 	any = autoresp_data.any
-	_autoresp_data = None
+	data = None
 	if False:
 		"""
-				data1: X*Z
-				data2: XY*
-				data2: Y*Z
-				data3: **Z
-				data4: **X
+			data1: 0*2
+			data2: 01*
+			data3: 1*2
+			data4: **2
+			data5: **0
 		"""
-		_autoresp_data = [
+		data = [
 				#有効		# 受信値		# 自動応答対象							# 応答データ名
 				#設定		# 名称			# 受信データパターン					# (自動送信設定)
 			[	True,		"Test1",		[hex('00'), any(1), hex('02')],		""],
@@ -527,7 +525,7 @@ if __name__ == "__main__":
 				data3: 04**0*
 				data4: 05**0*
 		"""
-		_autoresp_data = [
+		data = [
 				#有効		# 受信値		# 自動応答対象															# 応答データ名
 				#設定		# 名称			# 受信データパターン													# (自動送信設定)
 			[	True,		"Test1",		[hex('00'), hex('01'), any(1), any(1), hex('00'), any(1)],				""],
@@ -536,5 +534,5 @@ if __name__ == "__main__":
 			[	True,		"Test4",		[hex('00'), hex('04'), any(1), any(1), hex('00'), any(1)],				""],
 			[	True,		"Test5",		[hex('00'), hex('05'), any(1), any(1), hex('00'), any(1)],				""],
 		]
-	mng = autoresp_mng(_autoresp_data)
+	mng = autoresp_mng(data)
 	print("finish.")

@@ -275,7 +275,7 @@ class serial_manager:
 				# 解析結果処理
 				# 自動応答要求ありであれば先にシリアル通信を実施
 				if result.trans_req():
-					print("send:" + result.tail_node.id)
+					#print("send:" + result.id)
 					"""
 					# 自動応答送信データが有効なときだけ送信実行
 					if (self._write_buf) and (len(self._write_buf) > 0):
@@ -294,7 +294,7 @@ class serial_manager:
 					notify_msg = [ThreadNotify.COMMIT_RX, None, result.id, self._time_stamp_rx]
 					send_notify.put(notify_msg, block=True, timeout=timeout)
 				if result.trans_req():
-					print("send:" + result.tail_node.id)
+					print("send:" + result.id)
 					"""
 					# 自動応答送信データが有効なときだけ送信実行
 					if (self._write_buf) and (len(self._write_buf) > 0):
@@ -338,7 +338,13 @@ class serial_manager:
 		print("Exit: connect()")
 
 	def _debug_serial_read_init(self) -> None:
-		self._debug_buff = bytes.fromhex("0020AABBCCDDEEFF0030AABBCCDDEEFF")
+		self._debug_buff = bytes.fromhex(
+			"010102"
+			"010200"
+			"010201"
+			"010202"
+			"020000"
+		)
 		self._debug_buff_pos = 0
 		self._debug_buff_len = len(self._debug_buff)
 		self._debug_buff_recv_size = 20
