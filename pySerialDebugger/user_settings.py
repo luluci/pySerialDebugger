@@ -52,12 +52,12 @@ def autosend_settings() -> None:
 		"[AutoSend]", "自動送信パターン",
 	]
 	head = [
-			"[Act]",	"[ID]", 		"[SendInfo]",
+			"[Act]",	"[ID]", 				"[SendInfo]",
 	]
 	data = [
-		[	False,		"Test1",		[send("TestSend1"), wait(1000), send("TestSend2"), wait(1000)]],
-		[	False,		"Test2",		[send("TestSend4"), exit()]],
-		[	False,		"Test3",		[send("TestSend1"), wait(100), send("TestSend2"), wait(100), send("TestSend3"), wait(100), send("TestSend2"), jump(3)]],
+		[	False,		"TestAutoSend1",		[send("TestSend1"), wait(1000), send("TestSend2"), wait(1000)]],
+		[	False,		"TestAutoSend2",		[send("TestSend4"), exit()]],
+		[	False,		"TestAutoSend3",		[send("TestSend1"), wait(100), send("TestSend2"), wait(100), send("TestSend3"), wait(100), send("TestSend2"), jump(3)]],
 	]
 	#
 	return (caption, head, data)
@@ -88,11 +88,11 @@ def auto_response_settings():
 		data = [
 				#有効		# 受信値		# 自動応答対象							# 応答データ名
 				#設定		# 名称			# 受信データパターン					# (自動送信設定)
-			[	True,		"Test1",		[hex('00'), any(1), hex('02')],		""],
-			[	True,		"Test2",		[hex('00'), hex('01'), any(1)],		""],
-			[	True,		"Test3",		[hex('01'), any(1), hex('02')],		""],
-			[	True,		"Test4",		[any(1), any(1), hex('02')],		""],
-			[	True,		"Test5",		[any(1), any(1), hex('00')],		""],
+			[	True,		"Test1",		[hex('00'), any(1), hex('02')],			"TestAutoSend2"],
+			[	True,		"Test2",		[hex('00'), hex('01'), any(1)],			"TestAutoSend2"],
+			[	True,		"Test3",		[hex('01'), any(1), hex('02')],			"TestAutoSend2"],
+			[	True,		"Test4",		[any(1), any(1), hex('02')],			"TestAutoSend2"],
+			[	True,		"Test5",		[any(1), any(1), hex('00')],			"TestAutoSend2"],
 		]
 	if False:
 		data = [

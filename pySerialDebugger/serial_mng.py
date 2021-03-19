@@ -8,6 +8,7 @@ import time
 import enum
 
 from .autoresp import autoresp_data, autoresp_list, autoresp_mng
+from .autosend import autosend_data, autosend_mng, autosend_node, autosend_list, autosend_result
 
 DEBUG = True
 
@@ -171,6 +172,20 @@ class serial_manager:
 		# 自動応答マネージャを参照登録
 		self._autoresp_mng = mng
 
+	def autosend(self, mng: autosend_mng):
+		# 自動応答マネージャを参照登録
+		self._autosend_mng = mng
+		self._autosend_mng.set_send_cb(self.cb_autosend)
+
+	def cb_autosend(self, data: bytes):
+		"""
+		自動送信用コールバック関数
+		"""
+		if len(data) > 0:
+			#if self._serial.out_waiting > 0:
+			self._serial.write(data)
+			self._serial.flush()
+
 	class autoresp_node:
 		def __init__(self):
 			self.is_tail = False
@@ -238,6 +253,7 @@ class serial_manager:
 
 		# 自動応答初期化
 		self._autoresp_mng.recv_analyze_init()
+		as_result = autosend_result()
 
 		if not DEBUG:
 			# シリアルポートオープン
@@ -272,17 +288,10 @@ class serial_manager:
 				self._time_stamp_rx = self._time_stamp
 				# 受信解析実行
 				result = self._autoresp_mng.recv_analyze(recv[0])
+				# 自動送信実行
+				# 受信解析結果から送信要求があればこの中で実施される
+				as_result = self._autosend_mng.run(0, self._time_stamp_rx)
 				# 解析結果処理
-				# 自動応答要求ありであれば先にシリアル通信を実施
-				if result.trans_req():
-					#print("send:" + result.id)
-					"""
-					# 自動応答送信データが有効なときだけ送信実行
-					if (self._write_buf) and (len(self._write_buf) > 0):
-						#if self._serial.out_waiting > 0:
-						self._serial.write(self._write_buf)
-						self._serial.flush()
-					"""
 				# GUI通知を実行
 				if result.prev_buff_commit():
 					notify_msg = [ThreadNotify.COMMIT_RX, None, "", self._time_stamp_rx_prev]
@@ -293,16 +302,18 @@ class serial_manager:
 				if result.buff_commit():
 					notify_msg = [ThreadNotify.COMMIT_RX, None, result.id, self._time_stamp_rx]
 					send_notify.put(notify_msg, block=True, timeout=timeout)
-				if result.trans_req():
-					print("send:" + result.id)
-					"""
+				if as_result.is_send():
 					# 自動応答送信データが有効なときだけ送信実行
-					if (self._write_buf) and (len(self._write_buf) > 0):
-						notify_msg = [ThreadNotify.COMMIT_TX, self._write_buf, name, self._time_stamp_rx]
+					data = as_result.send_ref
+					if data.size > 0:
+						notify_msg = [ThreadNotify.COMMIT_TX, data.data_bytes, data.id, self._time_stamp_rx]
 						send_notify.put(notify_msg, block=True, timeout=timeout)
-					"""
 				# 前回受信時間
 				self._time_stamp_rx_prev = self._time_stamp_rx
+			else:
+				# 自動送信実行
+				# 受信解析結果から送信要求があればこの中で実施される
+				as_result = self._autosend_mng.run(0, self._time_stamp_rx)
 			# GUIからの通知チェック
 			if not recv_notify.empty():
 				# 前回シリアル受信から一定時間内は受信中とみなし送信を抑制する

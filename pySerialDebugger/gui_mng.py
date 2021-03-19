@@ -282,16 +282,17 @@ class gui_manager:
 			# イベント周期で切断をポーリング
 			# self._window.write_event_value("btn_connect", "")
 			# 自動送信を全終了
-			for row, autosend in enumerate(self._autosend_data):
-				if self._autosend_data[row].running():
-					# 自動送信有効のとき
-					# 自動送信を無効にする
-					self._comm_hdle_notify.put([ThreadNotify.AUTOSEND_DISABLE, row])
-					# GUI更新
-					self._window[("btn_autosend", row, None)].Update(text="Start")
-				else:
-					# 自動送信無効のとき
-					pass
+			self._autosend_mng.end(0)
+			#for row, autosend in enumerate(self._autosend_data):
+			#	if self._autosend_data[row].running():
+			#		# 自動送信有効のとき
+			#		# 自動送信を無効にする
+			#		self._comm_hdle_notify.put([ThreadNotify.AUTOSEND_DISABLE, row])
+			#		# GUI更新
+			#		self._window[("btn_autosend", row, None)].Update(text="Start")
+			#	else:
+			#		# 自動送信無効のとき
+			#		pass
 
 		elif self._gui_conn_state == self.DISCONNECTING:
 			# 切断完了判定を実施
@@ -404,9 +405,10 @@ class gui_manager:
 				self._events[t_ev](values, idx, col)
 			if event in (None, 'Quit'):
 				# 自動送信処理終了
-				node: autosend_mng
-				for i, node in enumerate(self._autosend_data):
-					node._enable = False
+				self._autosend_mng.end(0)
+				#node: autosend_mng
+				#for i, node in enumerate(self._autosend_data):
+				#	node._enable = False
 				# 各スレッドに終了通知
 				#self._notify_to_serial.put([serial_mng.ThreadNotify.EXIT_TASK, None, None])
 				self._exit_flag_serial.put(True)
@@ -469,9 +471,9 @@ class gui_manager:
 						# 自動送信無効化
 						self._autosend_data[pos].end(pos)
 				# 自動送信処理
-				node: autosend_mng
-				for i, node in enumerate(self._autosend_data):
-					node.run(i, timestamp_curr)
+				#node: autosend_mng
+				#for i, node in enumerate(self._autosend_data):
+				#	node.run(i, timestamp_curr)
 				# 一定時間受信が無ければ送信バッファをコミット
 				if (timestamp_curr - timestamp_rx) > rx_commit_interval:
 					if self.log_str != "":
@@ -720,12 +722,14 @@ class gui_manager:
 		self._autosend_data = gui_settings[2]
 		# 定義解析
 		# 自動送信マネージャに手動送信用コールバックを登録
-		autosend_mng.set_send_cb(self._autosend_send)
+		#autosend_mng.set_send_cb(self._autosend_send)
 		autosend_mng.set_exit_cb(self._autosend_exit)
 		autosend_mng.set_gui_update_cb(self._autosend_gui_update)
 		#
 		self._autosend_mng = autosend_mng(self._autosend_data, self._send_mng)
 		autosend_node.set_gui_info(self._size_tx, self._pad_tx, self._font_tx)
+		# 自動送信マネージャをシリアルマネージャに渡す
+		self._serial.autosend(self._autosend_mng)
 
 		# Layout: Caption
 		self._layout_autosend_caption = []

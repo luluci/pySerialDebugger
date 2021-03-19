@@ -1,3 +1,4 @@
+
 import PySimpleGUI as sg
 from typing import Any, Callable, List, Dict
 
@@ -102,7 +103,8 @@ class autosend_node:
 		# ユーザ定義データ取得
 		self.enable = autosend[autosend_list.ENABLE]
 		self.id = autosend[autosend_list.ID]
-		self.data_list = autosend[autosend_list.DATA]
+		self.data_list: List[autosend_data] = autosend[autosend_list.DATA]
+		self.data_size: int = len(self.data_list)
 		# データ解析
 		for data in self.data_list:
 			data: autosend_data
@@ -128,30 +130,37 @@ class autosend_node:
 		return parts
 
 
+class autosend_result:
+	def __init__(self) -> None:
+		# データ
+		self.send_ref: send_data_node = None
+		# フラグ
+		self._send_data: bool = False
+		self._wait_time: bool = False
+
+	def set_send(self, node:send_data_node):
+		self.send_ref = node
+		self._send_data = True
+
+	def set_wait(self):
+		self._wait_time = True
+
+	def is_send(self) -> bool:
+		return self._send_data
+
 class autosend_mng:
-	_send_cb: Callable[[int], None] = None
 	_exit_cb: Callable[[int], None] = None
 	_gui_update_cb: Callable[[int, int, int], None] = None
 
-	@classmethod
-	def set_send_cb(cls, cb: Callable[[int], None]) -> None:
-		cls._send_cb = cb
-
-	@classmethod
-	def set_exit_cb(cls, cb: Callable[[int], None]) -> None:
-		cls._exit_cb = cb
-
-	@classmethod
-	def set_gui_update_cb(cls, cb: Callable[[int, int, int], None]) -> None:
-		cls._gui_update_cb = cb
-
 	def __init__(self, autosend, mng: send_mng) -> None:
+		# コールバック
+		self._send_cb: Callable[[bytes], None] = None
 		# 送信データ定義への参照を設定
 		self._send_mng = mng
 		# 管理情報初期化
-		self._pos = 0
-		self._enable = False
-		self._timestamp = 0
+		self._active_node: autosend_node = None
+		self._pos: int = 0
+		self._timestamp: int = 0
 		# nodeリスト
 		self._data_list: List[autosend_node] = []
 		self._data_dict: Dict[str, autosend_node] = {}
@@ -166,83 +175,110 @@ class autosend_mng:
 			else:
 				print("id[" + new_node.id + "] is duplicate. idx[" + str(i) + "] is ignored.")
 
+	def set_send_cb(self, cb: Callable[[bytes], None]) -> None:
+		self._send_cb = cb
+
+	@classmethod
+	def set_exit_cb(cls, cb: Callable[[int], None]) -> None:
+		cls._exit_cb = cb
+
+	@classmethod
+	def set_gui_update_cb(cls, cb: Callable[[int, int, int], None]) -> None:
+		cls._gui_update_cb = cb
 
 
 	def start(self, idx: int) -> None:
-		self._enable = True
+		self.activate(self._data_list[idx])
 		# GUI更新
-		autosend_mng._gui_update_cb(idx, None, self._pos)
+		# autosend_mng._gui_update_cb(idx, None, self._pos)
 
 	def end(self, idx: int) -> None:
 		# GUI更新
-		autosend_mng._gui_update_cb(idx, self._pos, None)
+		#autosend_mng._gui_update_cb(idx, self._pos, None)
 		# パラメータ初期化
-		self._enable = False
+		self._active_node = None
+
+	def activate(self, node:autosend_node):
+		"""
+		指定のnodeで自動送信を有効化する
+		"""
+		# 参照設定
+		self._active_node = node
+		# パラメータ初期化
 		self._pos = 0
-		self._timestamp = 0
+		#self._timestamp = 0
 
 	def running(self) -> bool:
 		return self._enable
 
-	def run(self, idx: int, timestamp: int) -> None:
-		if self._enable:
-			self._run_impl(idx, timestamp)
+	def run(self, idx: int, timestamp: int) -> autosend_result:
+		# 処理結果情報初期化
+		self._result = autosend_result()
+		# 自動送信処理
+		if self._active_node is not None:
+			self._run_impl(self._active_node.data_list[self._pos], idx, timestamp)
+		# 結果を返す
+		return self._result
 
-	def _next(self, idx: int) -> None:
-		idx_disable = self._pos
-		self._pos += 1
-		if self._pos >= len(self._nodes):
-			self._pos = 0
-		idx_enable = self._pos
-		# GUI更新
-		autosend_mng._gui_update_cb(idx, idx_disable, idx_enable)
+	def _run_impl(self, data:autosend_data, idx: int, timestamp: int) -> None:
+		node_type = data._node_type
+		if node_type == autosend_data.SEND:
+			self._run_impl_send(data, idx, timestamp)
+		elif node_type == autosend_data.WAIT:
+			self._run_impl_wait(data, idx, timestamp)
+		elif node_type == autosend_data.JUMP:
+			self._run_impl_jump(data, idx, timestamp)
+		elif node_type == autosend_data.EXIT:
+			self._run_impl_exit(data, idx)
 
-	def _set_pos(self, idx: int, pos: int) -> None:
-		idx_disable = self._pos
-		self._pos = pos
-		if self._pos >= len(self._nodes):
-			self._pos = 0
-		idx_enable = self._pos
-		# GUI更新
-		autosend_mng._gui_update_cb(idx, idx_disable, idx_enable)
-
-	def _run_impl(self, idx: int, timestamp: int) -> None:
-		if self._nodes[self._pos]._node_type == autosend_data.SEND:
-			self._run_impl_send(idx, timestamp)
-		elif self._nodes[self._pos]._node_type == autosend_data.WAIT:
-			self._run_impl_wait(idx, timestamp)
-		elif self._nodes[self._pos]._node_type == autosend_data.JUMP:
-			self._run_impl_jump(idx, timestamp)
-		elif self._nodes[self._pos]._node_type == autosend_data.EXIT:
-			self._run_impl_exit(idx)
-
-	def _run_impl_send(self, idx: int, timestamp: int) -> None:
+	def _run_impl_send(self, data: autosend_data, idx: int, timestamp: int) -> None:
 		# タイムスタンプ更新
 		self._timestamp = timestamp
 		# 送信実行
-		autosend_mng._send_cb(self._nodes[self._pos]._send_name_idx)
+		self._send_cb(data._send_ref.data_bytes)
 		# 次のシーケンスへ遷移
 		self._next(idx)
+		# 結果作成
+		self._result.set_send(data._send_ref)
 
-	def _run_impl_wait(self, idx: int, timestamp: int) -> None:
+	def _run_impl_wait(self, data: autosend_data, idx: int, timestamp: int) -> None:
 		if self._timestamp == 0:
 			# タイムスタンプ更新
 			self._timestamp = timestamp
 		else:
 			# wait時間経過判定
 			diff = timestamp - self._timestamp
-			if diff >= self._nodes[self._pos]._wait_time:
+			if diff >= data._wait_time:
 				# タイムスタンプ初期化
 				self._timestamp = timestamp
 				self._next(idx)
+		# 結果作成
+		self._result.set_wait()
 
-	def _run_impl_jump(self, idx: int, timestamp: int) -> None:
+	def _run_impl_jump(self, data: autosend_data, idx: int, timestamp: int) -> None:
 		# タイムスタンプ更新
 		self._timestamp = timestamp
 		# 指定のシーケンスへジャンプ
-		self._set_pos(idx, self._nodes[self._pos]._jump_to)
+		self._set_pos(idx, data._jump_to)
 
-	def _run_impl_exit(self, idx: int) -> None:
-		autosend_mng._exit_cb(idx)
+	def _run_impl_exit(self, data: autosend_data, idx: int) -> None:
+		#autosend_mng._exit_cb(idx)
 		self.end(idx)
 
+	def _next(self, idx: int) -> None:
+		idx_disable = self._pos
+		self._pos += 1
+		if self._pos >= self._active_node.data_size:
+			self._pos = 0
+		idx_enable = self._pos
+		# GUI更新
+		# autosend_mng._gui_update_cb(idx, idx_disable, idx_enable)
+
+	def _set_pos(self, idx: int, pos: int) -> None:
+		idx_disable = self._pos
+		self._pos = pos
+		if self._pos >= self._active_node.data_size:
+			self._pos = 0
+		idx_enable = self._pos
+		# GUI更新
+		# autosend_mng._gui_update_cb(idx, idx_disable, idx_enable)

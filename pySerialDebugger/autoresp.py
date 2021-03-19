@@ -162,6 +162,7 @@ class analyze_result:
 
 	def set_analyze_succeeded(self, tail_node: autoresp_tail_node):
 		if tail_node is not None:
+			# 受信解析データ設定
 			self.id = tail_node.id
 			self.tail_node = tail_node
 		# フラグ設定
@@ -315,6 +316,12 @@ class autoresp_mng:
 			node.enable = resp[autoresp_list.ENABLE]
 			node.id = id
 			node.send_id = resp[autoresp_list.SENDDATA_ID]
+			# 送信データ参照設定
+			if node.send_id not in self._autosend_mng._data_dict.keys():
+				node.enable = False
+				print("autosend_id[" + node.send_id + "] is not exist.")
+			else:
+				node.senddata_ref = self._autosend_mng._data_dict[node.send_id]
 			# 参照登録
 			self.tail_ref[node.id] = node
 		else:
@@ -459,6 +466,8 @@ class autoresp_mng:
 		if self._curr_node.tail:
 			# 受信解析正常終了
 			result.set_analyze_succeeded(self._curr_node.tail_active)
+			# 自動応答設定
+			self._autosend_mng.activate(self._curr_node.tail_active.senddata_ref)
 		else:
 			# 解析継続中
 			result.set_analyzing()
