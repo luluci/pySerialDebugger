@@ -27,64 +27,6 @@ class ThreadNotify(enum.Enum):
 	AUTORESP_UPDATE = enum.auto()			# 自動応答データ更新
 	EXIT_TASK = enum.auto()					# シリアルタスク終了
 
-class AnalyzeResult:
-	"""
-	受信解析結果定義
-	"""
-
-	def __init__(self) -> None:
-		self._autoresp_send = False
-		self._rx_buf_commit_prev = False
-		self._rx_buf_commit = False
-		self._rx_buf_push = False
-
-	"""
-	状態設定メソッド
-	解析状態を設定する。内部で操作要求へ変換する。
-	"""
-	def set_analyze_NG2OK(self):
-		self._rx_buf_commit_prev = True
-
-	def set_analyze_OK2NG(self):
-		pass
-
-	def set_analyze_OK2OK(self):
-		pass
-
-	def set_analyze_NG2NG(self):
-		pass
-
-	def set_analyze_succeeded(self):
-		self._autoresp_send = True
-		self._rx_buf_push = True
-		self._rx_buf_commit = True
-
-	def set_analyze_failed(self):
-		# 
-		self._rx_buf_push = True
-
-	def set_analyzing(self):
-		self._rx_buf_push = True
-
-	def set_analyze_next_start(self):
-		self._rx_buf_commit_prev = True
-		self._rx_buf_push = True
-
-	"""
-	操作要求取得メソッド
-	"""
-	def trans_req(self) -> bool:
-		return self._autoresp_send
-
-	def prev_buff_commit(self) -> bool:
-		return self._rx_buf_commit_prev
-
-	def new_data_push(self) -> bool:
-		return self._rx_buf_push
-
-	def buff_commit(self) -> bool:
-		return self._rx_buf_commit
-
 
 
 class serial_manager:
@@ -92,15 +34,14 @@ class serial_manager:
 	def __init__(self) -> None:
 		self._serial: serial.Serial = None
 		self._is_open: bool = False
-		self._write_buf: bytes = None
 		# フレーム受信中に手動送信することを防ぐ
 		# 前回受信から特定時間経過するまで手動送信しない
 		self._send_tx_delay: int = 0
-		# Response Table
+		# autoresp管理
 		self._autoresp_mng: autoresp_mng = None
-		self._autoresp_resp = {}
-		# Analyze Table
-		self._autoresp_rcv = self.autoresp_node()
+		# autosend管理
+		self._autosend_mng: autosend_mng = None
+
 
 	def __del__(self) -> None:
 		self.close()
@@ -186,50 +127,6 @@ class serial_manager:
 			self._serial.write(data)
 			self._serial.flush()
 
-	class autoresp_node:
-		def __init__(self):
-			self.is_tail = False
-			self.next = {}
-			self.resp = None
-			self.name = ""
-
-	def autoresp_build(self, name: str, rx_bytes: bytes, tx_bytes: bytes, tx_enable: bool) -> None:
-		"""
-		受信データ解析テーブルを構築
-		初回のみ実施。ツール起動後は応答データのみ更新できる。
-		"""
-		node_ref = self._autoresp_rcv
-		# bytesを辞書に登録
-		for byte in rx_bytes:
-			if byte not in node_ref.next:
-				node_ref.next[byte] = self.autoresp_node()
-			node_ref = node_ref.next[byte]
-		# 受信応答が有効であれば末端情報セット
-		if tx_enable:
-			# 受信パターンに重複があれば警告
-			if node_ref.resp is not None:
-				print("warning: AutoResp Rx pattern duplicate: " + node_ref.name + " <-> " + name)
-			# 末端ノードに応答データをセット
-			node_ref.name = name
-			node_ref.resp = tx_bytes
-		# nameと末端ノードの対応付けを実施
-		node_ref.is_tail = True
-		self._autoresp_resp[name] = node_ref
-
-	def autoresp_update(self, name: str, tx_bytes: bytes, tx_enable: bool) -> None:
-		"""
-		応答データ更新
-		"""
-		if tx_enable:
-			# 自動応答有効なら応答データを更新
-			self._autoresp_resp[name].name = name
-			self._autoresp_resp[name].resp = tx_bytes
-		else:
-			# 自動応答無効なら自分の応答データが有効だったら無効化
-			if self._autoresp_resp[name].name == name:
-				self._autoresp_resp[name].name = ""
-				self._autoresp_resp[name].resp = None
-
 	def sendopt_txdelay_update(self, time: int) -> None:
 		"""
 		@param time マイクロ病秒 
@@ -245,7 +142,6 @@ class serial_manager:
 		"""
 		# init
 		timeout = None
-		self._autoresp_rcv_pos = self._autoresp_rcv
 		self._time_stamp: int = 0
 		self._time_stamp_rx: int = 0
 		self._time_stamp_rx_prev: int = 0
@@ -341,9 +237,11 @@ class serial_manager:
 						notify_msg = [ThreadNotify.AUTORESP_UPDATE_FIN, None, None, None]
 						send_notify.put(notify_msg, block=True, timeout=timeout)
 					if msg == ThreadNotify.EXIT_TASK:
+						# 
 						break
 
-
+		# 自動送信停止
+		self._autosend_mng.end(0)
 		# シリアル通信切断
 		self.close()
 		# queueを空にしておく

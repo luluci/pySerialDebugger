@@ -282,7 +282,7 @@ class gui_manager:
 			# イベント周期で切断をポーリング
 			# self._window.write_event_value("btn_connect", "")
 			# 自動送信を全終了
-			self._autosend_mng.end(0)
+			# self._autosend_mng.end(0)
 			#for row, autosend in enumerate(self._autosend_data):
 			#	if self._autosend_data[row].running():
 			#		# 自動送信有効のとき
@@ -405,7 +405,7 @@ class gui_manager:
 				self._events[t_ev](values, idx, col)
 			if event in (None, 'Quit'):
 				# 自動送信処理終了
-				self._autosend_mng.end(0)
+				#self._autosend_mng.end(0)
 				#node: autosend_mng
 				#for i, node in enumerate(self._autosend_data):
 				#	node._enable = False
@@ -903,8 +903,8 @@ class gui_manager:
 		GUI上で更新された自動応答設定を反映する
 		"""
 		# SerialManagaerに通知
-		for i, resp in enumerate(self._autoresp_data):
-			self._serial.autoresp_update(resp[DataConf.NAME], self._autoresp_data_tx[i], resp[DataConf.ENABLE])
+		#for i, resp in enumerate(self._autoresp_data):
+		#	self._serial.autoresp_update(resp[DataConf.NAME], self._autoresp_data_tx[i], resp[DataConf.ENABLE])
 
 	def _req_send_bytes(self, idx:int) -> None:
 		"""
