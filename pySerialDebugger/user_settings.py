@@ -30,6 +30,11 @@ def send_settings() -> None:
 		[	"TestSend2",		hex('00'),					5,			None,		0,				3,				],
 		[	"TestSend3",		hex(''),					0,			None,		0,				3,				],
 		[	"TestSend4",		[ inp('aa'), sel({'ON':1, 'OFF':0}), fix('00'), fix('00'), inp16be('1234'), inp('56'), inp16('8000'), fix('9A') ],	18,			17,			1,				16,					],
+		[	"TestSend_A",		hex('01AA000000FF'),		-1,			6,			0,				4,				],
+		[	"TestSend_B",		hex('01BB000000FF'),		-1,			6,			0,				4,				],
+		[	"TestSend_C",		hex('01CC000000FF'),		-1,			6,			0,				4,				],
+		[	"TestSend_D",		hex('01DD000000FF'),		-1,			6,			0,				4,				],
+		[	"TestSend_X",		hex('0100FF'),				-1,			3,			1,				2,				],
 	]
 	#
 	return (caption, head, data)
@@ -55,9 +60,10 @@ def autosend_settings() -> None:
 			"[Act]",	"[ID]", 				"[SendInfo]",
 	]
 	data = [
-		[	False,		"TestAutoSend1",		[send("TestSend1"), wait(1000), send("TestSend2"), wait(1000)]],
-		[	False,		"TestAutoSend2",		[send("TestSend4"), exit()]],
-		[	False,		"TestAutoSend3",		[send("TestSend1"), wait(100), send("TestSend2"), wait(100), send("TestSend3"), wait(100), send("TestSend2"), jump(3)]],
+		[	False,		"TestAutoSend1",		[send("TestSend_A"), wait(50), send("TestSend_B"), exit()]],
+		[	False,		"TestAutoSend2",		[send("TestSend_C"), wait(50), send("TestSend_D"), exit()]],
+		[	False,		"TestAutoSend3",		[send("TestSend_X"), wait(25), send("TestSend_X"), exit()]],
+		[	False,		"TestAutoSend4",		[send("TestSend_X"), wait(25), send("TestSend2"), wait(100), send("TestSend3"), wait(100), send("TestSend2"), jump(3)]],
 	]
 	#
 	return (caption, head, data)
@@ -86,13 +92,13 @@ def auto_response_settings():
 			data5: **0
 		"""
 		data = [
-				#有効		# 受信値		# 自動応答対象							# 応答データ名
-				#設定		# 名称			# 受信データパターン					# (自動送信設定)
-			[	True,		"Test1",		[hex('00'), any(1), hex('02')],			"TestAutoSend2"],
-			[	True,		"Test2",		[hex('00'), hex('01'), any(1)],			"TestAutoSend2"],
-			[	True,		"Test3",		[hex('01'), any(1), hex('02')],			"TestAutoSend2"],
-			[	True,		"Test4",		[any(1), any(1), hex('02')],			"TestAutoSend2"],
-			[	True,		"Test5",		[any(1), any(1), hex('00')],			"TestAutoSend2"],
+				#有効		# 受信値		# 自動応答対象									# 応答データ名
+				#設定		# 名称			# 受信データパターン							# (自動送信設定)
+			[	True,		"Test1",		[hex('00'), hex('AA'), any(1), any(1)],			"TestAutoSend1"],
+			[	True,		"Test2",		[hex('00'), hex('BB'), any(1), any(1)],			"TestAutoSend2"],
+			[	True,		"Test3",		[hex('00'), any('FF'), hex('02')],				"TestAutoSend3"],
+			[	True,		"Test4",		[any(1), any(1), hex('02')],					"TestAutoSend4"],
+			[	True,		"Test5",		[any(1), any(1), hex('00')],					"TestAutoSend4"],
 		]
 	if False:
 		data = [
