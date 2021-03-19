@@ -1,7 +1,38 @@
 
 from .autoresp import autoresp_data
+from .send_node import send_data
 
 
+def hex2bytes(hex: str) -> bytes:
+	return bytes.fromhex(hex)
+
+
+
+def send_settings() -> None:
+	hex = hex2bytes
+	inp = send_data.input
+	inp16 = send_data.input_16
+	inp16be = send_data.input_16be
+	sel = send_data.select
+	fix = send_data.fix
+
+	caption = [
+		"[送信データ設定]", "", "送信データ",
+	]
+	head = [
+			"[ID]",				["ST", "XX", "XX", "XX", "XX", "YY"]
+	]
+	data = [
+			# 送信設定			# 手動送信データ定義					# FCC定義(idx=0開始)
+			# 名称				# 送信HEX					#サイズ		# 挿入位置	# 計算開始位置	# 計算終了位置
+		[	"Manual",			hex(''),					24,			17,			4,				7,				],
+		[	"TestSend1",		hex('00112233'),			-1,			4,			0,				3,				],
+		[	"TestSend2",		hex('00'),					5,			None,		0,				3,				],
+		[	"TestSend3",		hex(''),					0,			None,		0,				3,				],
+		[	"TestSend4",		[ inp('aa'), sel({'ON':1, 'OFF':0}), fix('00'), fix('00'), inp16be('1234'), inp('56'), inp16('8000'), fix('9A') ],	18,			17,			1,				16,					],
+	]
+	#
+	return (caption, head, data)
 
 
 def auto_response_settings():

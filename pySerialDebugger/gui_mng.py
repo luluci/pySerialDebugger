@@ -8,7 +8,7 @@ import queue
 import re
 import enum
 from . import serial_mng
-from .send_node import send_node
+from .send_node import send_data, send_data_node, send_mng, send_data_list
 from .autoresp import autoresp_data, autoresp_list, autoresp_mng
 from . import user_settings
 
@@ -357,15 +357,21 @@ class gui_manager:
 			# None: self._hdl_exit,
 			# Button: Connect
 			"btn_connect": self._hdl_btn_connect,
+			### 自動応答
+			# データ更新
 			"btn_autoresp_update": self._hdl_btn_autoresp_update,
-			# Button: Send
+			# GUI更新
+			"resp": self._hdl_hex_ui_resp,
+			### 送信
+			# 送信ボタン
 			"btn_send": self._hdl_btn_send,
+			# オプション更新
 			"btn_sendopt_update": self._hdl_btn_sendopt_update,
+			# GUI更新
+			"send": self._hdl_hex_ui_send,
 			# Button: AutoSend
 			"btn_autosend": self._hdl_btn_autosend,
 			# ButtonMenu:
-			"resp": self._hdl_hex_ui_resp,
-			"send": self._hdl_hex_ui_send,
 			# Script Write Event
 			"_swe_disconnected": self._hdl_swe_disconnected,
 			"_swe_autosend_disable": self._hdl_autosend_disable,
@@ -820,49 +826,60 @@ class gui_manager:
 
 	def _send_init(self) -> None:
 		# 定義を読み込む
-		self._send_settings()
+		gui_settings = user_settings.send_settings()
+		self._send_caption = gui_settings[0]
+		self._send_head = gui_settings[1]
+		self._send_data = gui_settings[2]
 		# 定義解析
-		self._send_settings_construct()
-		# 最大送信データ長を算出、ヘッダ構築に利用
-		# TX_SIZEはconstructで更新済み
-		# 固定ヘッダの分を最後に足す
-		send_col_num = 0
-		for data in self._send_data:
-			# send_data GUI 列数を算出
-			if data[DataConf.TX_SIZE] > send_col_num:
-				send_col_num = data[DataConf.TX_SIZE]
-		send_col_num += DataConf.RX + 1
+		#self._send_settings_construct()
+		self._send_mng = send_mng(self._send_data)
+		send_data.set_gui_info(self._size_tx, self._pad_tx, self._font_tx)
+
 		# Make Caption
 		self._layout_send_caption = []
 		self._layout_send_caption.append(sg.Text("", size=self._size_btn_txt, font=self._font_btn_txt))
 		self._layout_send_caption.append(sg.Text(self._send_caption[0], size=self._size_name, font=self._font_name))
 		self._layout_send_caption.append(sg.Text(self._send_caption[2], size=self._size_name, font=self._font_name)) 
 		# Make Header
-		head_max = len(self._send_head)
 		self._layout_send_head = []
 		self._layout_send_head.append(sg.Text("", size=self._size_btn_txt, font=self._font_btn_txt))
-		self._layout_send_head.append(sg.Text(self._send_head[DataConf.NAME], size=self._size_name, font=self._font_name))
+		self._layout_send_head.append(sg.Text(self._send_head[send_data_list.ID], size=self._size_name, font=self._font_name))
 		# ヘッダ定義がデータ最大に足りなかったら穴埋めする
+		# Header GUI作成クロージャ
+		def header_gui_closure():
+			# 定義
+			def get(text:str):
+				return sg.Input(text, size=self._size_tx, font=self._font_tx, disabled=True, pad=self._pad_tx, disabled_readonly_background_color=sg.theme_background_color(), disabled_readonly_text_color=sg.theme_element_text_color())
+			# return
+			return get
+		#
+		gui_get = header_gui_closure()
+		head_data = self._send_head[send_data_list.DATA]
+		head_max = len(head_data)
 		head_suffix = ""
-		if head_max < send_col_num:
-			head_suffix = self._send_head[head_max-1]
-			self._send_head[head_max-1] = head_suffix + "[1]"
-		self._layout_send_head.extend([sg.Input(self._send_head[i], size=self._size_tx, font=self._font_tx, disabled=True, pad=self._pad_tx, disabled_readonly_background_color=sg.theme_background_color(), disabled_readonly_text_color=sg.theme_element_text_color()) for i in range(DataConf.RX+1, head_max)])
-		if head_max < send_col_num:
-			self._layout_send_head.extend( [sg.Input(head_suffix + "[" + str(i - head_max + 2) + "]", size=self._size_tx, font=self._font_tx, disabled=True, pad=self._pad_tx, disabled_readonly_background_color=sg.theme_background_color(), disabled_readonly_text_color=sg.theme_element_text_color()) for i in range(head_max, send_col_num)])
+		# header定義数がデータ定義数に達していないとき、末尾を配列っぽくしておく
+		if head_max < self._send_mng._max_size:
+			head_suffix = head_data[head_max-1]
+			head_data[head_max-1] = head_suffix + "[1]"
+		self._layout_send_head.extend([gui_get(head) for head in head_data])
+		# 不足分を出力
+		if head_max < self._send_mng._max_size:
+			data_diff = self._send_mng._max_size - head_max
+			self._layout_send_head.extend( [gui_get(head_suffix + "[" + str(i + 2) + "]") for i in range(0, data_diff)])
 		# Make Values
 		self._layout_send_data = []
-		for idx, data in enumerate(self._send_data):
+		data: send_data_node
+		for row, data in enumerate(self._send_mng._send_data_list):
 			# GUI処理
 			# Add empty list
-			idx = len(self._layout_send_data)
+			#idx = len(self._layout_send_data)
 			parts = []
 			# Add Button col
-			parts.append(sg.Button("Send", size=self._size_btn, font=self._font_btn, key=("btn_send",idx, None)))
+			parts.append(sg.Button("Send", size=self._size_btn, font=self._font_btn, key=("btn_send",row, None)))
 			# Add Name col
-			parts.append(sg.Text(data[DataConf.NAME], size=self._size_name, font=self._font_name))
+			parts.append(sg.Text(data.id, size=self._size_name, font=self._font_name))
 			# Add resp data col
-			parts.extend(self._init_gui_tx("send", idx, data, self._send_data_tx[idx]))
+			parts.extend(data.get_gui("send", row))
 			# GUI更新
 			self._layout_send_data.append(parts)
 
@@ -870,13 +887,14 @@ class gui_manager:
 		# 定義を読み込む
 		self._autosend_settings()
 		# 定義解析
-		self._autosend_settings_construct()
+		#self._autosend_settings_construct()
 		# Make Caption
 		self._layout_autosend_caption = []
 		self._layout_autosend_caption.append(sg.Text(self._autosend_caption[0], size=self._size_as_caption, font=self._font_name))
 		self._layout_autosend_caption.append(sg.Text(self._autosend_caption[1], size=(100,1), font=self._font_name)) 
 		# Make Values
 		self._layout_autosend_data = []
+		"""
 		for idx, data in enumerate(self._autosend_data):
 			data: autosend_mng
 			# GUI処理
@@ -889,97 +907,101 @@ class gui_manager:
 			parts.extend(data.get_gui("autosend", idx, self._size_as, self._font_name, self._pad_tx))
 			# GUI更新
 			self._layout_autosend_data.append(parts)
+		"""
 
-	def _init_gui_tx(self, key: str, idx: int, tx_data: List[any], tx_hex: bytes):
-		if isinstance(tx_data[DataConf.TX], bytes):
-			return self._init_gui_tx_bytes(key, idx, tx_data, tx_hex)
-		if isinstance(tx_data[DataConf.TX], List):
-			return self._init_gui_tx_gui_list(key, idx, tx_data, tx_hex)
+	# def _init_gui_tx(self, key: str, idx: int, tx_data: send_data_node):
+	# 	if isinstance(tx_data[DataConf.TX], bytes):
+	# 		return self._init_gui_tx_bytes(key, idx, tx_data)
+	# 	if isinstance(tx_data[DataConf.TX], List):
+	# 		return self._init_gui_tx_gui_list(key, idx, tx_data)
 
-	def _init_gui_tx_bytes(self, key: str, idx: int, tx_data: List[any], hex: bytes):
-		size: int = tx_data[DataConf.TX_SIZE]
-		parts = []
-		# Add resp data col
-		parts.extend([sg.Input(format(byte, "02X"), size=self._size_tx, font=self._font_tx, key=(key, idx, i), pad=self._pad_tx, enable_events=True) for i, byte in enumerate(hex)])
-		# Add empty data col
-		begin = len(hex)
-		end = size
-		parts.extend([sg.Input( "", size=self._size_tx, font=self._font_tx, key=(key, idx,i), pad=self._pad_tx, enable_events=True) for i in range(begin, end)])
-		# bytes上の位置とGUI上のcolとの対応付けテーブルを作成
-		bytes_gui_tbl = [i for i in range(0, len(hex))]
-		tx_data.append(bytes_gui_tbl)
-		return parts
+	# def _init_gui_tx_bytes(self, key: str, idx: int, tx_data: send_data_node):
+	# 	def make_input_closuer():
+	# 		def make(byte: int):
+	# 			return sg.Input(format(byte, "02X"), size=self._size_tx, font=self._font_tx, key=(key, idx, i), pad=self._pad_tx, enable_events=True)
 
-	def _init_gui_tx_gui_list(self, key: str, idx: int, tx_data: List[any], tx_hex: bytes):
-		txs: List[send_node] = tx_data[DataConf.TX]
-		size: int = tx_data[DataConf.TX_SIZE]
-		parts = []
-		# Add resp data col
-		fix = send_node.fix
-		tx_len = len(txs)
-		gui_id = 0
-		gui_size = 0
-		bytes_idx = 0
-		bytes_gui_tbl = [0] * size
-		gui_bytes_tbl = [0] * size
-		while bytes_idx < size:
-			# GUI部品を作成する
-			if bytes_idx < tx_len:
-				# send_nodeが存在すればsend_nodeから作成
-				parts.append(txs[gui_id].get_gui((key, idx, gui_id), self._size_tx, self._pad_tx, self._font_tx))
-				gui_size = txs[gui_id].get_size()
-			else:
-				# send_nodeが存在しなければ自動生成
-				parts.append(fix(format(tx_hex[bytes_idx], "02X")).get_gui((key, idx, gui_id), self._size_tx, self._pad_tx, self._font_tx))
-				gui_size = 1
-			# bytes上の位置とGUI上のcolとの対応付けテーブルを双方向で作成
-			gui_bytes_tbl[gui_id] = bytes_idx
-			for i in range(0, gui_size):
-				bytes_gui_tbl[bytes_idx] = gui_id
-				bytes_idx += 1
-			# id更新
-			gui_id += 1
-		# bytes上の位置とGUI上のcolとの対応付けテーブルをデータに格納
-		tx_data.append(bytes_gui_tbl)
-		tx_data.append(gui_bytes_tbl)
-		return parts
+	# 	parts = []
+	# 	# Add resp data col
+	# 	parts.extend([sg.Input(format(byte, "02X"), size=self._size_tx, font=self._font_tx, key=(key, idx, i), pad=self._pad_tx, enable_events=True) for i, byte in enumerate(hex)])
+	# 	# Add empty data col
+	# 	begin = len(hex)
+	# 	end = size
+	# 	parts.extend([sg.Input( "", size=self._size_tx, font=self._font_tx, key=(key, idx,i), pad=self._pad_tx, enable_events=True) for i in range(begin, end)])
+	# 	# bytes上の位置とGUI上のcolとの対応付けテーブルを作成
+	# 	bytes_gui_tbl = [i for i in range(0, len(hex))]
+	# 	tx_data.append(bytes_gui_tbl)
+	# 	return parts
+
+	# def _init_gui_tx_gui_list(self, key: str, idx: int, tx_data: List[any], tx_hex: bytes):
+	# 	txs: List[send_data] = tx_data[DataConf.TX]
+	# 	size: int = tx_data[DataConf.TX_SIZE]
+	# 	parts = []
+	# 	# Add resp data col
+	# 	fix = send_data.fix
+	# 	tx_len = len(txs)
+	# 	gui_id = 0
+	# 	gui_size = 0
+	# 	bytes_idx = 0
+	# 	bytes_gui_tbl = [0] * size
+	# 	gui_bytes_tbl = [0] * size
+	# 	while bytes_idx < size:
+	# 		# GUI部品を作成する
+	# 		if bytes_idx < tx_len:
+	# 			# send_nodeが存在すればsend_nodeから作成
+	# 			parts.append(txs[gui_id].get_gui((key, idx, gui_id), self._size_tx, self._pad_tx, self._font_tx))
+	# 			gui_size = txs[gui_id].get_size()
+	# 		else:
+	# 			# send_nodeが存在しなければ自動生成
+	# 			parts.append(fix(format(tx_hex[bytes_idx], "02X")).get_gui((key, idx, gui_id), self._size_tx, self._pad_tx, self._font_tx))
+	# 			gui_size = 1
+	# 		# bytes上の位置とGUI上のcolとの対応付けテーブルを双方向で作成
+	# 		gui_bytes_tbl[gui_id] = bytes_idx
+	# 		for i in range(0, gui_size):
+	# 			bytes_gui_tbl[bytes_idx] = gui_id
+	# 			bytes_idx += 1
+	# 		# id更新
+	# 		gui_id += 1
+	# 	# bytes上の位置とGUI上のcolとの対応付けテーブルをデータに格納
+	# 	tx_data.append(bytes_gui_tbl)
+	# 	tx_data.append(gui_bytes_tbl)
+	# 	return parts
 
 
-	def _send_settings_construct(self) -> None:
-		# 実送信データHEXを別データとして保持する
-		self._send_data_tx = []
-		self._send_data_ref = {}
-		for i, data in enumerate(self._send_data):
-			### 送信データ長を算出
-			# 送信データHEX長と送信データサイズを比較
-			tx_len = self._calc_data_len(data[DataConf.TX])
-			data_len = max(tx_len, data[DataConf.TX_SIZE])
-			# FCCを反映
-			if data[DataConf.FCC_POS] >= data_len:
-				data_len = data[DataConf.FCC_POS] + 1
-			# 定義データを更新
-			data[DataConf.TX_SIZE] = data_len
-			### 送信データHEXを構築
-			tx_data = None
-			if isinstance(data[DataConf.TX], bytes):
-				tx_data = data[DataConf.TX]
-			if isinstance(data[DataConf.TX], List):
-				tx_data = self._settings_construct_bytes(data[DataConf.TX])
-			self._send_data_tx.append(tx_data)
-			# 送信データ長まで0埋め
-			for j in range(len(self._send_data_tx[i]), data_len):
-				self._send_data_tx[i] += b'\0'
-			# FCC算出
-			self._send_data_tx[i] = self._update_fcc(self._send_data_tx[i], data[DataConf.FCC_POS], data[DataConf.FCC_BEGIN], data[DataConf.FCC_END])
-			# 名称-送信データHEX対応付けテーブルを作成
-			self._send_data_ref[data[DataConf.NAME]] = i
-			# FCC算出結果を送信データ定義に反映する。
-			# FCC位置設定が送信データ定義内にあった場合に有効となる。範囲外の場合はGUI設定の方で反映する。
-			if isinstance(data[DataConf.TX], List):
-				idx = 0
-				for tx in data[DataConf.TX]:
-					tx.set_value(self._send_data_tx[i], idx)
-					idx += tx.get_size()
+	# def _send_settings_construct(self) -> None:
+	# 	# 実送信データHEXを別データとして保持する
+	# 	self._send_data_tx = []
+	# 	self._send_data_ref = {}
+	# 	for i, data in enumerate(self._send_data):
+	# 		### 送信データ長を算出
+	# 		# 送信データHEX長と送信データサイズを比較
+	# 		tx_len = self._calc_data_len(data[DataConf.TX])
+	# 		data_len = max(tx_len, data[DataConf.TX_SIZE])
+	# 		# FCCを反映
+	# 		if data[DataConf.FCC_POS] >= data_len:
+	# 			data_len = data[DataConf.FCC_POS] + 1
+	# 		# 定義データを更新
+	# 		data[DataConf.TX_SIZE] = data_len
+	# 		### 送信データHEXを構築
+	# 		tx_data = None
+	# 		if isinstance(data[DataConf.TX], bytes):
+	# 			tx_data = data[DataConf.TX]
+	# 		if isinstance(data[DataConf.TX], List):
+	# 			tx_data = self._settings_construct_bytes(data[DataConf.TX])
+	# 		self._send_data_tx.append(tx_data)
+	# 		# 送信データ長まで0埋め
+	# 		for j in range(len(self._send_data_tx[i]), data_len):
+	# 			self._send_data_tx[i] += b'\0'
+	# 		# FCC算出
+	# 		self._send_data_tx[i] = self._update_fcc(self._send_data_tx[i], data[DataConf.FCC_POS], data[DataConf.FCC_BEGIN], data[DataConf.FCC_END])
+	# 		# 名称-送信データHEX対応付けテーブルを作成
+	# 		self._send_data_ref[data[DataConf.NAME]] = i
+	# 		# FCC算出結果を送信データ定義に反映する。
+	# 		# FCC位置設定が送信データ定義内にあった場合に有効となる。範囲外の場合はGUI設定の方で反映する。
+	# 		if isinstance(data[DataConf.TX], List):
+	# 			idx = 0
+	# 			for tx in data[DataConf.TX]:
+	# 				tx.set_value(self._send_data_tx[i], idx)
+	# 				idx += tx.get_size()
 
 	def _autosend_settings_construct(self) -> None:
 		# 自動送信マネージャに手動送信用コールバックを登録
@@ -1017,7 +1039,7 @@ class gui_manager:
 	def _autosend_gui_update(self, row: int, col_disable: int, col_enable: int) -> None:
 		self._window.write_event_value("_swe_autosend_gui_update", (row, col_disable, col_enable))
 
-	def _calc_data_len(self, txs: List[send_node]) -> int:
+	def _calc_data_len(self, txs: List[send_data]) -> int:
 		if isinstance(txs, bytes):
 			return len(txs)
 		if isinstance(txs, List):
@@ -1026,7 +1048,7 @@ class gui_manager:
 				txs_len += tx.get_size()
 			return txs_len
 
-	def _settings_construct_bytes(self, txs: List[send_node]):
+	def _settings_construct_bytes(self, txs: List[send_data]):
 		data = b''
 		# send_nodeリストからbytesを作成する
 		for tx in txs:
@@ -1102,7 +1124,7 @@ class gui_manager:
 			data = "00"
 		return (bytes.fromhex(data), 1)
 
-	def _get_gui_data_list(self, gui: sg.Element, key: str, row: int, col: int, tx_data: List[send_node]) -> Tuple[bytes, int]:
+	def _get_gui_data_list(self, gui: sg.Element, key: str, row: int, col: int, tx_data: List[send_data]) -> Tuple[bytes, int]:
 		"""
 		GUI上の送信データ設定を取得する
 		"""
@@ -1143,7 +1165,7 @@ class gui_manager:
 			fmt = "X"
 		gui.Update(value=format(txs[gui_id], fmt))
 
-	def _update_gui_tx_data_list(self, gui: sg.Element, key: str, row: int, gui_id: int, bytes_idx: int, tx_data: List[send_node], txs: bytes, fmt: str):
+	def _update_gui_tx_data_list(self, gui: sg.Element, key: str, row: int, gui_id: int, bytes_idx: int, tx_data: List[send_data], txs: bytes, fmt: str):
 		"""
 		GUI上の送信データ設定を更新する
 		"""
@@ -1202,34 +1224,6 @@ class gui_manager:
 				fcc += data[i]
 		fcc = ((fcc ^ 0xFF) + 1) % 256
 		return fcc
-
-
-	def _hex2bytes(self, hex: str) -> bytes:
-		return bytes.fromhex(hex)
-
-	def _send_settings(self) -> None:
-		hex = self._hex2bytes
-		inp = send_node.input
-		inp16 = send_node.input_16
-		inp16be = send_node.input_16be
-		sel = send_node.select
-		fix = send_node.fix
-
-		self._send_caption = [
-			"[送信データ設定]", "", "送信データ",
-		]
-		self._send_head = [
-			"dummy", "[Name]", "dummy", "ST", "XX", "XX", "XX", "XX", "YY"
-		]
-		self._send_data = [
-							# 送信設定						# 手動送信データ定義					# FCC定義(idx=0開始)
-				#dummy		# 名称			#受信データ		# 送信HEX					#サイズ		# 挿入位置	# 計算開始位置	# 計算終了位置
-			[	None,		"Manual",		None,			hex(''),					24,			17,			4,				7,				],
-			[	None,		"TestSend1",	None,			hex('00112233'),			-1,			4,			0,				3,				],
-			[	None,		"TestSend2",	None,			hex('00'),					5,			-1,			0,				3,				],
-			[	None,		"TestSend3",	None,			hex(''),					0,			-1,			0,				3,				],
-			[	None,		"TestSend4",	None,			[ inp('aa'), sel({'ON':1, 'OFF':0}), fix('00'), fix('00'), inp16be('1234'), inp('56'), inp16('8000'), fix('9A') ],	18,			17,			1,				16,					],
-		]
 
 	def _autosend_settings(self) -> None:
 		"""
