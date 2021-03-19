@@ -1,7 +1,7 @@
 
 from .autoresp import autoresp_data
 from .send_node import send_data
-
+from .autosend import autosend_data
 
 def hex2bytes(hex: str) -> bytes:
 	return bytes.fromhex(hex)
@@ -34,6 +34,33 @@ def send_settings() -> None:
 	#
 	return (caption, head, data)
 
+
+def autosend_settings() -> None:
+	"""
+	自動送信定義
+	手動送信として定義したデータを使って送信する。
+	送信対象は手動送信設定の名称で指定する。
+	シリアル通信での出力を確認せずにシーケンスを進めるので、
+	シリアル通信側で送信できずに詰まるとキューあふれを起こす点に注意。
+	"""
+	send = autosend_data.send		# 手動送信で設定した送信データ(名称で指定)を送信する
+	wait = autosend_data.wait_ms	# 指定時間だけwaitする(※100ms前後くらい処理時間ありそう。)
+	exit = autosend_data.exit		# 自動送信を終了する
+	jump = autosend_data.jump		# autosendリスト内の指定idx(0開始)にジャンプする
+
+	caption = [
+		"[AutoSend]", "自動送信パターン",
+	]
+	head = [
+			"[Act]",	"[ID]", 		"[SendInfo]",
+	]
+	data = [
+		[	False,		"Test1",		[send("TestSend1"), wait(1000), send("TestSend2"), wait(1000)]],
+		[	False,		"Test2",		[send("TestSend4"), exit()]],
+		[	False,		"Test3",		[send("TestSend1"), wait(100), send("TestSend2"), wait(100), send("TestSend3"), wait(100), send("TestSend2"), jump(3)]],
+	]
+	#
+	return (caption, head, data)
 
 def auto_response_settings():
 	"""

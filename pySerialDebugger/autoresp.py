@@ -1,6 +1,7 @@
 import enum
 from typing import List, Dict
 import PySimpleGUI as sg
+from .autosend import autosend_data, autosend_mng, autosend_node, autosend_list
 
 class autoresp_data:
 	"""
@@ -202,7 +203,9 @@ class autoresp_mng:
 	受信データ解析テーブルを構築
 	"""
 
-	def __init__(self, autoresp) -> None:
+	def __init__(self, autoresp, mng: autosend_mng) -> None:
+		# 自動送信データへの参照
+		self._autosend_mng: autosend_mng = mng
 		# アクセス用にリストと辞書の両方で参照を持つ
 		self.mng_dict: Dict[str,autoresp_node] = {}
 		self.mng_list: List[str,autoresp_node] = []

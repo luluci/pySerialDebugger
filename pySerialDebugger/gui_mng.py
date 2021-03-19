@@ -9,182 +9,10 @@ import re
 import enum
 from . import serial_mng
 from .send_node import send_data, send_data_node, send_mng, send_data_list
+from .autosend import autosend_data, autosend_mng, autosend_node, autosend_list
 from .autoresp import autoresp_data, autoresp_list, autoresp_mng
 from . import user_settings
 
-
-class autosend_node:
-	"""
-	自動送信定義ノード
-	"""
-	# ノードタイプ
-	SEND, WAIT, JUMP, EXIT = range(0,4)
-	# wait分解能
-	MS, US, NS = range(0,3)
-
-	def __init__(self, type: int, name:str, wait:int, wait_unit:int, jump: int) -> None:
-		self._node_type: int = type
-		self._send_name: str = name
-		self._send_name_idx: int = 0
-		self._wait_time: int = wait
-		self._wait_unit: int = wait_unit
-		self._jump_to: int = jump
-
-	@classmethod
-	def exit(cls):
-		return autosend_node(autosend_node.EXIT, None, 0, None, None)
-
-	@classmethod
-	def send(cls, name:str):
-		return autosend_node(autosend_node.SEND, name, 0, None, None)
-
-	@classmethod
-	def wait_ms(cls, wait: int):
-		return autosend_node(autosend_node.WAIT, None, wait * 1000 * 1000, autosend_node.MS, None)
-
-	@classmethod
-	def wait_us(cls, wait: int):
-		return autosend_node(autosend_node.WAIT, None, wait * 1000, autosend_node.US, None)
-
-	@classmethod
-	def jump(cls, jump: int):
-		return autosend_node(autosend_node.JUMP, None, 0, None, jump)
-
-	def get_gui(self, key, size, pad, font) -> Any:
-		# タイプごとに処理
-		text = ""
-		if self._node_type == autosend_node.SEND:
-			text = "send[" + self._send_name + "]"
-		elif self._node_type == autosend_node.WAIT:
-			time = 0
-			unit = ""
-			if self._wait_unit == autosend_node.MS:
-				time = self._wait_time / (1000 * 1000)
-				unit = "ms"
-			elif self._wait_unit == autosend_node.US:
-				time = self._wait_time / (1000)
-				unit = "us"
-			text = "wait[" + "{0}".format(time) + unit + "]"
-		elif self._node_type == autosend_node.JUMP:
-			text = "jump_to[" + "{0}".format(self._jump_to) + "]"
-		elif self._node_type == autosend_node.EXIT:
-			text = "exit"
-		else:
-			raise Exception("unknown node type detected!")
-		# GUI作成
-		return sg.Input(text, disabled=True, key=key, size=size, pad=pad, font=font, disabled_readonly_background_color=sg.theme_background_color(), disabled_readonly_text_color=sg.theme_element_text_color())
-
-
-class autosend_mng:
-	_send_cb: Callable[[int], None] = None
-	_exit_cb: Callable[[int], None] = None
-	_gui_update_cb: Callable[[int,int,int], None] = None
-
-	def __init__(self, nodes: List[autosend_node]) -> None:
-		self._nodes = nodes
-		self._pos = 0
-		self._enable = False
-		self._timestamp = 0
-
-	def start(self, idx: int) -> None:
-		self._enable = True
-		# GUI更新
-		autosend_mng._gui_update_cb(idx, None, self._pos)
-
-	def end(self, idx: int) -> None:
-		# GUI更新
-		autosend_mng._gui_update_cb(idx, self._pos, None)
-		# パラメータ初期化
-		self._enable = False
-		self._pos = 0
-		self._timestamp = 0
-
-	def running(self) -> bool:
-		return self._enable
-
-	def run(self, idx: int, timestamp: int) -> None:
-		if self._enable:
-			self._run_impl(idx, timestamp)
-
-	def _next(self, idx: int) -> None:
-		idx_disable = self._pos
-		self._pos += 1
-		if self._pos >= len(self._nodes):
-			self._pos = 0
-		idx_enable = self._pos
-		# GUI更新
-		autosend_mng._gui_update_cb(idx, idx_disable, idx_enable)
-
-	def _set_pos(self, idx: int, pos: int) -> None:
-		idx_disable = self._pos
-		self._pos = pos
-		if self._pos >= len(self._nodes):
-			self._pos = 0
-		idx_enable = self._pos
-		# GUI更新
-		autosend_mng._gui_update_cb(idx, idx_disable, idx_enable)
-
-	def _run_impl(self, idx: int, timestamp: int) -> None:
-		if self._nodes[self._pos]._node_type == autosend_node.SEND:
-			self._run_impl_send(idx, timestamp)
-		elif self._nodes[self._pos]._node_type == autosend_node.WAIT:
-			self._run_impl_wait(idx, timestamp)
-		elif self._nodes[self._pos]._node_type == autosend_node.JUMP:
-			self._run_impl_jump(idx, timestamp)
-		elif self._nodes[self._pos]._node_type == autosend_node.EXIT:
-			self._run_impl_exit(idx)
-
-	def _run_impl_send(self, idx: int, timestamp: int) -> None:
-		# タイムスタンプ更新
-		self._timestamp = timestamp
-		# 送信実行
-		autosend_mng._send_cb(self._nodes[self._pos]._send_name_idx)
-		# 次のシーケンスへ遷移
-		self._next(idx)
-
-	def _run_impl_wait(self, idx: int, timestamp: int) -> None:
-		if self._timestamp == 0:
-			# タイムスタンプ更新
-			self._timestamp = timestamp
-		else:
-			# wait時間経過判定
-			diff = timestamp - self._timestamp
-			if diff >= self._nodes[self._pos]._wait_time:
-				# タイムスタンプ初期化
-				self._timestamp = timestamp
-				self._next(idx)
-
-	def _run_impl_jump(self, idx: int, timestamp: int) -> None:
-		# タイムスタンプ更新
-		self._timestamp = timestamp
-		# 指定のシーケンスへジャンプ
-		self._set_pos(idx, self._nodes[self._pos]._jump_to)
-
-	def _run_impl_exit(self, idx: int) -> None:
-		autosend_mng._exit_cb(idx)
-		self.end(idx)
-
-	def get_gui(self, key, idx, size, font, pad) -> Any:
-		parts = []
-		for col, node in enumerate(self._nodes):
-			if col != 0:
-				parts.append( sg.Text(">>", size=(3,1), font=font) )
-			else:
-				parts.append( sg.Text("", size=(1,1)) )
-			parts.append( node.get_gui( (key,idx,col), size, pad, font ) )
-		return parts
-
-	@classmethod
-	def set_send_cb(cls, cb: Callable[[int], None]) -> None:
-		cls._send_cb = cb
-
-	@classmethod
-	def set_exit_cb(cls, cb: Callable[[int], None]) -> None:
-		cls._exit_cb = cb
-
-	@classmethod
-	def set_gui_update_cb(cls, cb: Callable[[int, int, int], None]) -> None:
-		cls._gui_update_cb = cb
 
 
 
@@ -299,6 +127,7 @@ class gui_manager:
 		self._autosend_init()
 		layout_serial_autosend = [
 			self._layout_autosend_caption,
+			self._layout_autosend_head,
 			*self._layout_autosend_data
 		]
 		layout_serial_autosend_column = [
@@ -776,7 +605,7 @@ class gui_manager:
 		# コンストラクタで解析ツリーを構築、
 		# 自動応答enableが重複したときは自動でdisableに変更する。
 		# このあとにGUI構築すること
-		self._autoresp_mng = autoresp_mng(self._autoresp_data)
+		self._autoresp_mng = autoresp_mng(self._autoresp_data, self._autosend_mng)
 		autoresp_data.set_gui_info(self._size_tx, self._pad_tx, self._font_tx)
 		# 受信解析マネージャをシリアルマネージャに渡す
 		self._serial.autoresp(self._autoresp_mng)
@@ -885,148 +714,45 @@ class gui_manager:
 
 	def _autosend_init(self) -> None:
 		# 定義を読み込む
-		self._autosend_settings()
+		gui_settings = user_settings.autosend_settings()
+		self._autosend_caption = gui_settings[0]
+		self._autosend_head = gui_settings[1]
+		self._autosend_data = gui_settings[2]
 		# 定義解析
-		#self._autosend_settings_construct()
-		# Make Caption
-		self._layout_autosend_caption = []
-		self._layout_autosend_caption.append(sg.Text(self._autosend_caption[0], size=self._size_as_caption, font=self._font_name))
-		self._layout_autosend_caption.append(sg.Text(self._autosend_caption[1], size=(100,1), font=self._font_name)) 
-		# Make Values
-		self._layout_autosend_data = []
-		"""
-		for idx, data in enumerate(self._autosend_data):
-			data: autosend_mng
-			# GUI処理
-			# Add empty list
-			idx = len(self._layout_autosend_data)
-			parts = []
-			# Add Button col
-			parts.append(sg.Button("Start", size=self._size_as_btn, font=self._font_btn, key=("btn_autosend",idx, None)))
-			# Add Settings col
-			parts.extend(data.get_gui("autosend", idx, self._size_as, self._font_name, self._pad_tx))
-			# GUI更新
-			self._layout_autosend_data.append(parts)
-		"""
-
-	# def _init_gui_tx(self, key: str, idx: int, tx_data: send_data_node):
-	# 	if isinstance(tx_data[DataConf.TX], bytes):
-	# 		return self._init_gui_tx_bytes(key, idx, tx_data)
-	# 	if isinstance(tx_data[DataConf.TX], List):
-	# 		return self._init_gui_tx_gui_list(key, idx, tx_data)
-
-	# def _init_gui_tx_bytes(self, key: str, idx: int, tx_data: send_data_node):
-	# 	def make_input_closuer():
-	# 		def make(byte: int):
-	# 			return sg.Input(format(byte, "02X"), size=self._size_tx, font=self._font_tx, key=(key, idx, i), pad=self._pad_tx, enable_events=True)
-
-	# 	parts = []
-	# 	# Add resp data col
-	# 	parts.extend([sg.Input(format(byte, "02X"), size=self._size_tx, font=self._font_tx, key=(key, idx, i), pad=self._pad_tx, enable_events=True) for i, byte in enumerate(hex)])
-	# 	# Add empty data col
-	# 	begin = len(hex)
-	# 	end = size
-	# 	parts.extend([sg.Input( "", size=self._size_tx, font=self._font_tx, key=(key, idx,i), pad=self._pad_tx, enable_events=True) for i in range(begin, end)])
-	# 	# bytes上の位置とGUI上のcolとの対応付けテーブルを作成
-	# 	bytes_gui_tbl = [i for i in range(0, len(hex))]
-	# 	tx_data.append(bytes_gui_tbl)
-	# 	return parts
-
-	# def _init_gui_tx_gui_list(self, key: str, idx: int, tx_data: List[any], tx_hex: bytes):
-	# 	txs: List[send_data] = tx_data[DataConf.TX]
-	# 	size: int = tx_data[DataConf.TX_SIZE]
-	# 	parts = []
-	# 	# Add resp data col
-	# 	fix = send_data.fix
-	# 	tx_len = len(txs)
-	# 	gui_id = 0
-	# 	gui_size = 0
-	# 	bytes_idx = 0
-	# 	bytes_gui_tbl = [0] * size
-	# 	gui_bytes_tbl = [0] * size
-	# 	while bytes_idx < size:
-	# 		# GUI部品を作成する
-	# 		if bytes_idx < tx_len:
-	# 			# send_nodeが存在すればsend_nodeから作成
-	# 			parts.append(txs[gui_id].get_gui((key, idx, gui_id), self._size_tx, self._pad_tx, self._font_tx))
-	# 			gui_size = txs[gui_id].get_size()
-	# 		else:
-	# 			# send_nodeが存在しなければ自動生成
-	# 			parts.append(fix(format(tx_hex[bytes_idx], "02X")).get_gui((key, idx, gui_id), self._size_tx, self._pad_tx, self._font_tx))
-	# 			gui_size = 1
-	# 		# bytes上の位置とGUI上のcolとの対応付けテーブルを双方向で作成
-	# 		gui_bytes_tbl[gui_id] = bytes_idx
-	# 		for i in range(0, gui_size):
-	# 			bytes_gui_tbl[bytes_idx] = gui_id
-	# 			bytes_idx += 1
-	# 		# id更新
-	# 		gui_id += 1
-	# 	# bytes上の位置とGUI上のcolとの対応付けテーブルをデータに格納
-	# 	tx_data.append(bytes_gui_tbl)
-	# 	tx_data.append(gui_bytes_tbl)
-	# 	return parts
-
-
-	# def _send_settings_construct(self) -> None:
-	# 	# 実送信データHEXを別データとして保持する
-	# 	self._send_data_tx = []
-	# 	self._send_data_ref = {}
-	# 	for i, data in enumerate(self._send_data):
-	# 		### 送信データ長を算出
-	# 		# 送信データHEX長と送信データサイズを比較
-	# 		tx_len = self._calc_data_len(data[DataConf.TX])
-	# 		data_len = max(tx_len, data[DataConf.TX_SIZE])
-	# 		# FCCを反映
-	# 		if data[DataConf.FCC_POS] >= data_len:
-	# 			data_len = data[DataConf.FCC_POS] + 1
-	# 		# 定義データを更新
-	# 		data[DataConf.TX_SIZE] = data_len
-	# 		### 送信データHEXを構築
-	# 		tx_data = None
-	# 		if isinstance(data[DataConf.TX], bytes):
-	# 			tx_data = data[DataConf.TX]
-	# 		if isinstance(data[DataConf.TX], List):
-	# 			tx_data = self._settings_construct_bytes(data[DataConf.TX])
-	# 		self._send_data_tx.append(tx_data)
-	# 		# 送信データ長まで0埋め
-	# 		for j in range(len(self._send_data_tx[i]), data_len):
-	# 			self._send_data_tx[i] += b'\0'
-	# 		# FCC算出
-	# 		self._send_data_tx[i] = self._update_fcc(self._send_data_tx[i], data[DataConf.FCC_POS], data[DataConf.FCC_BEGIN], data[DataConf.FCC_END])
-	# 		# 名称-送信データHEX対応付けテーブルを作成
-	# 		self._send_data_ref[data[DataConf.NAME]] = i
-	# 		# FCC算出結果を送信データ定義に反映する。
-	# 		# FCC位置設定が送信データ定義内にあった場合に有効となる。範囲外の場合はGUI設定の方で反映する。
-	# 		if isinstance(data[DataConf.TX], List):
-	# 			idx = 0
-	# 			for tx in data[DataConf.TX]:
-	# 				tx.set_value(self._send_data_tx[i], idx)
-	# 				idx += tx.get_size()
-
-	def _autosend_settings_construct(self) -> None:
 		# 自動送信マネージャに手動送信用コールバックを登録
 		autosend_mng.set_send_cb(self._autosend_send)
 		autosend_mng.set_exit_cb(self._autosend_exit)
 		autosend_mng.set_gui_update_cb(self._autosend_gui_update)
-		# 自動送信データ定義をチェック
-		for idx, autosend in enumerate(self._autosend_data):
-			data = autosend[2]
-			# autosendノードチェック
-			for node in data:
-				node: autosend_node
-				if node._node_type == autosend_node.SEND:
-					if node._send_name not in self._send_data_ref:
-						# 送信対象定義名称が存在しない場合NG
-						raise Exception("in AutoSend Settings, '" + node._send_name + "' send setting not exist.")
-					# 対象手動送信データのidxを記憶
-					node._send_name_idx = self._send_data_ref[node._send_name]
-				elif node._node_type == autosend_node.JUMP:
-					if node._jump_to >= len(data):
-						# Jump先が存在しない場合はNG
-						raise Exception("in AutoSend Settings, jump to '" + "{0}".format(node._jump_to) + "'th node is not exist.")
-			# autosendノードをマネージャに置き換える
-			as_mng = autosend_mng(data)
-			self._autosend_data[idx] = as_mng
+		#
+		self._autosend_mng = autosend_mng(self._autosend_data, self._send_mng)
+		autosend_node.set_gui_info(self._size_tx, self._pad_tx, self._font_tx)
+
+		# Layout: Caption
+		self._layout_autosend_caption = []
+		self._layout_autosend_caption.append(sg.Text(self._autosend_caption[0], size=self._size_as_caption, font=self._font_name))
+		self._layout_autosend_caption.append(sg.Text(self._autosend_caption[1], size=(100,1), font=self._font_name)) 
+		# Layout: Header
+		self._layout_autosend_head = []
+		self._layout_autosend_head.append(sg.Text(self._autosend_head[autosend_list.ENABLE], size=self._size_enable, font=self._font_enable))
+		self._layout_autosend_head.append(sg.Text(self._autosend_head[autosend_list.ID], size=self._size_name, font=self._font_header))
+		self._layout_autosend_head.append(sg.Text(self._autosend_head[autosend_list.DATA], size=self._size_rx, font=self._font_header))
+		# Layout: Values
+		self._layout_autosend_data = []
+		for row, data in enumerate(self._autosend_mng._data_list):
+			data: autosend_node
+			# GUI処理
+			# Add empty list
+			row = len(self._layout_autosend_data)
+			parts = []
+			# Add Button col
+			parts.append(sg.Button("Start", size=self._size_as_btn, font=self._font_btn, key=("btn_autosend",row, None)))
+			# Add Name col
+			parts.append(sg.Text(data.id, size=self._size_name, font=self._font_name))
+			# Add Settings col
+			parts.extend(data.get_gui("autosend", row))
+			# GUI更新
+			self._layout_autosend_data.append(parts)
+
 
 	def _autosend_send(self, idx: int) -> None:
 		#idx = self._send_data_ref[name]
@@ -1039,21 +765,6 @@ class gui_manager:
 	def _autosend_gui_update(self, row: int, col_disable: int, col_enable: int) -> None:
 		self._window.write_event_value("_swe_autosend_gui_update", (row, col_disable, col_enable))
 
-	def _calc_data_len(self, txs: List[send_data]) -> int:
-		if isinstance(txs, bytes):
-			return len(txs)
-		if isinstance(txs, List):
-			txs_len = 0
-			for tx in txs:
-				txs_len += tx.get_size()
-			return txs_len
-
-	def _settings_construct_bytes(self, txs: List[send_data]):
-		data = b''
-		# send_nodeリストからbytesを作成する
-		for tx in txs:
-			data += tx.get_bytes()
-		return data
 
 	def _update_fcc(self, tgt: bytes, fcc_pos:int, fcc_begin:int, fcc_end:int) -> bytes:
 		# FCC位置が-1ならスキップ
@@ -1224,28 +935,6 @@ class gui_manager:
 				fcc += data[i]
 		fcc = ((fcc ^ 0xFF) + 1) % 256
 		return fcc
-
-	def _autosend_settings(self) -> None:
-		"""
-		自動送信定義
-		手動送信として定義したデータを使って送信する。
-		送信対象は手動送信設定の名称で指定する。
-		シリアル通信での出力を確認せずにシーケンスを進めるので、
-		シリアル通信側で送信できずに詰まるとキューあふれを起こす点に注意。
-		"""
-		send = autosend_node.send		# 手動送信で設定した送信データ(名称で指定)を送信する
-		wait = autosend_node.wait_ms	# 指定時間だけwaitする(※100ms前後くらい処理時間ありそう。)
-		exit = autosend_node.exit		# 自動送信を終了する
-		jump = autosend_node.jump		# autosendリスト内の指定idx(0開始)にジャンプする
-
-		self._autosend_caption = [
-			"[AutoSend]", "自動送信パターン",
-		]
-		self._autosend_data = [
-			[	False,		"",			[send("TestSend1"), wait(1000), send("TestSend2"), wait(1000)]],
-			[	False,		"",			[send("TestSend4"), exit()]],
-			[	False,		"",			[send("TestSend1"), wait(100), send("TestSend2"), wait(100), send("TestSend1"), wait(100), send("TestSend2"), jump(3)]],
-		]
 
 
 
