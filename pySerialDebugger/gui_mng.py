@@ -242,7 +242,7 @@ class gui_manager:
 			if self._serial_open():
 				# オープンに成功したら
 				# スレッドにて通信制御を開始
-				self._future_serial = self._executer.submit(self._serial.connect, self._notify_to_serial, self._notify_from_serial)
+				self._future_serial = self._executer.submit(self._serial.connect, self._notify_from_serial)
 				# GUI更新
 				self._conn_btn_hdl.Update(text="Disconnect")
 				self._conn_status_hdl.Update(value=self._get_com_info())
@@ -353,7 +353,6 @@ class gui_manager:
 		# 自動応答データ設定を更新
 		if self._serial.is_open():
 			# シリアル通信スレッドに自動応答データ更新のリクエストを投げる
-			#self._notify_to_serial.put([serial_mng.ThreadNotify.AUTORESP_UPDATE, self._autoresp_update, None])
 			thread.messenger.notify_serial_autoresp_update(self._autoresp_update)
 		else:
 			# 非通信時は直接更新
@@ -403,7 +402,6 @@ class gui_manager:
 		# スレッド間通信用キュー
 		self._comm_hdle_notify = queue.Queue(10)
 
-		self._notify_to_serial = queue.Queue(10)
 		self._notify_from_serial = queue.Queue(10)
 		# (1) Windows イベントハンドラ
 		# (2) シリアル通信
@@ -780,10 +778,10 @@ class gui_manager:
 			self._layout_autosend_data.append(parts)
 
 
-	def _autosend_send(self, idx: int) -> None:
+	def _autosend_send(self, row: int) -> None:
 		#idx = self._send_data_ref[name]
 		# 送信データをGUIから取得して送信する場合
-		self._req_send_bytes(idx)
+		self._req_send_bytes(row)
 
 	def _autosend_exit(self, idx: int) -> None:
 		self._window.write_event_value("_swe_autosend_disable", idx)
@@ -791,27 +789,6 @@ class gui_manager:
 	def _autosend_gui_update(self, row: int, col_disable: int, col_enable: int) -> None:
 		self._window.write_event_value("_swe_autosend_gui_update", (row, col_disable, col_enable))
 
-
-	def _update_fcc(self, tgt: bytes, fcc_pos:int, fcc_begin:int, fcc_end:int) -> bytes:
-		# FCC位置が-1ならスキップ
-		if fcc_pos != -1:
-			# FCC計算
-			fcc = 0
-			fcc = self._calc_fcc(tgt, fcc_begin, fcc_end+1, fcc_pos)
-			# FCC挿入
-			resp_len = len(tgt)
-			if resp_len-1 < fcc_pos:
-				# 挿入位置が応答データサイズを超える場合、バッファを追加する
-				# 挿入位置が応答データ長+1を超える場合はゼロ埋めする
-				for i in range(resp_len, fcc_pos):
-					tgt += (b'\0')
-				tgt += (fcc.to_bytes(1, 'little'))
-			else:
-				# 挿入位置が応答データサイズ未満のときは既存バッファを書き換える
-				temp = bytearray(tgt)
-				temp[fcc_pos] = fcc
-				tgt = bytes(temp)
-		return tgt
 
 	def _update_send_gui(self, gui: sg.Element, key: str, row: int, col: int) -> None:
 		data: send_data_node = self._send_mng._send_data_list[row]
@@ -829,15 +806,16 @@ class gui_manager:
 		# 
 		self._autoresp_mng.update_tree()
 
-	def _req_send_bytes(self, idx:int) -> None:
+	def _req_send_bytes(self, row:int) -> None:
 		"""
 		GUI上で更新された自動応答設定を反映する
 		"""
 		# SerialManagaerに通知
-		if self._notify_to_serial.full():
+		if thread.messenger.is_full_notify_serial():
 			print("Queue is full, send req denied.")
 		else:
-			self._notify_to_serial.put([serial_mng.ThreadNotify.TX_BYTES, self._send_data_tx[idx], self._send_data[idx][DataConf.NAME]])
+			node:send_data_node = self._send_mng._send_data_list[row]
+			thread.messenger.notify_serial_send(node.id, node.data_bytes)
 
 	def _sendopt_update(self):
 		time_ptn = re.compile(r'[0-9]+')

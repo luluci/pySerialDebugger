@@ -38,10 +38,17 @@ class gui_msg:
 	def __init__(self) -> None:
 		self.notify: ThreadNotify = None
 		self.cb: Callable[[None], None] = None
+		self.id: str = None
+		self.data: bytes = None
 
 	def autoresp_update(self, cb):
 		self.notify = ThreadNotify.AUTORESP_UPDATE
 		self.cb = cb
+
+	def send(self, id: str, data: bytes):
+		self.notify = ThreadNotify.TX_BYTES
+		self.id = id
+		self.data = data
 
 
 class hdlr_msg:
@@ -82,16 +89,10 @@ class msg_manager:
 		self.q_gui2hdlr_exit.put(True)
 
 	def has_exit_serial(self):
-		if self.q_gui2serial_exit.empty():
-			return False
-		else:
-			return True
+		return not self.q_gui2serial_exit.empty()
 
 	def has_exit_hdlr(self):
-		if self.q_gui2hdlr_exit.empty():
-			return False
-		else:
-			return True
+		return not self.q_gui2hdlr_exit.empty()
 
 	def clear_exit_serial(self):
 		# queueを空にしておく
@@ -106,11 +107,11 @@ class msg_manager:
 	"""
 	シリアル通信スレッドへ通知
 	"""
+	def is_full_notify_serial(self):
+		return self.q_gui2serial_msg.full()
+
 	def has_notify_serial(self):
-		if self.q_gui2serial_msg.empty():
-			return False
-		else:
-			return True
+		return not self.q_gui2serial_msg.empty()
 
 	def get_notify_serial(self) -> gui_msg:
 		return self.q_gui2serial_msg.get_nowait()
@@ -126,16 +127,19 @@ class msg_manager:
 		# メッセージ送信
 		self.q_gui2serial_msg.put(new_msg, block=True, timeout=None)
 
+	def notify_serial_send(self, id: str, data: bytes):
+		# メッセージ作成
+		new_msg = gui_msg()
+		new_msg.send(id, data)
+		# メッセージ送信
+		self.q_gui2serial_msg.put(new_msg, block=True, timeout=None)
 
 	"""
 	管理制御スレッドへ通知
 	"""
 
 	def has_notify_serial2hdrl(self):
-		if self.q_serial2hdlr_msg.empty():
-			return False
-		else:
-			return True
+		return not self.q_serial2hdlr_msg.empty()
 
 	def get_notify_serial2hdrl(self) -> serial_msg:
 		return self.q_serial2hdlr_msg.get_nowait()

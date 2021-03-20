@@ -33,7 +33,7 @@ def send_settings() -> None:
 		[	"TestSend_A",		hex('01AA000000FF'),		-1,			6,			0,				4,				],
 		[	"TestSend_B",		hex('01BB000000FF'),		-1,			6,			0,				4,				],
 		[	"TestSend_C",		hex('01CC000000FF'),		-1,			6,			0,				4,				],
-		[	"TestSend_D",		hex('01DD000000FF'),		-1,			6,			0,				4,				],
+		[	"TestSend_D",		[ fix('01'), fix('DD'), inp16be('1234'), sel({'ON':1, 'OFF':0}) ],		-1,			6,			0,				4,				],
 		[	"TestSend_X",		hex('0100FF'),				-1,			3,			1,				2,				],
 	]
 	#

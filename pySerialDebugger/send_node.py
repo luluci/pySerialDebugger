@@ -305,7 +305,7 @@ class send_data_node:
 		# FCC情報設定
 		self.fcc_pos = data[send_data_list.FCC_POS]
 		self.fcc_calc_begin = data[send_data_list.FCC_CALC_BEGIN]
-		self.fcc_calc_end = data[send_data_list.FCC_CALC_END]
+		self.fcc_calc_end = data[send_data_list.FCC_CALC_END]+1
 		# 送信データ定義設定
 		self.size = data[send_data_list.DATA_SIZE]
 		# send_dataリスト
@@ -470,8 +470,9 @@ class send_data_node:
 		# GUI部品にGUI入力値を渡して、解析結果を受け取る
 		value = data.get_value(gui_data)
 		# bytearrayを更新
+		data_idx = self.map_gui2data[col]
 		for i, byte in enumerate(value):
-			self.data_array[col+i] = byte
+			self.data_array[data_idx+i] = byte
 		# FCC算出
 		fcc = self.update_fcc()
 		# 作成したbytearrayをbytesに反映

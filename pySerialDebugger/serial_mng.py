@@ -13,7 +13,7 @@ from . import thread
 
 
 
-DEBUG = True
+DEBUG = False
 
 class ThreadNotify(enum.Enum):
 	"""
@@ -137,7 +137,7 @@ class serial_manager:
 		# ナノ秒に直しておく
 		self._send_tx_delay = time * 1000
 
-	def connect(self, recv_notify: queue.Queue, send_notify: queue.Queue) -> None:
+	def connect(self, send_notify: queue.Queue) -> None:
 		"""
 		Serial open and communicate.
 		無限ループで通信を続けるのでスレッド化して実施する。
@@ -226,33 +226,17 @@ class serial_manager:
 				curr_timestamp = time.perf_counter_ns()
 				if (curr_timestamp - self._time_stamp_rx) >= self._send_tx_delay:
 					msg = thread.messenger.get_notify_serial()
+					if msg.notify == thread.ThreadNotify.TX_BYTES:
+						# 手動送信
+						self._serial.write(msg.data)
+						self._serial.flush()
+						notify_msg = [ThreadNotify.COMMIT_TX, msg.data, msg.id, curr_timestamp]
+						send_notify.put(notify_msg, block=True, timeout=timeout)
 					if msg.notify == thread.ThreadNotify.AUTORESP_UPDATE:
 						# コールバック関数で更新を実施
 						msg.cb()
 						# 自動応答データ設定更新完了を通知
 						thread.messenger.notify_hdlr_autoresp_updated()
-			if not recv_notify.empty():
-				# 前回シリアル受信から一定時間内は受信中とみなし送信を抑制する
-				# この待機時間はGUIから設定する
-				curr_timestamp = time.perf_counter_ns()
-				if (curr_timestamp - self._time_stamp_rx) >= self._send_tx_delay:
-					# 通知をdequeue
-					msg, data, name = recv_notify.get_nowait()
-					if msg == ThreadNotify.TX_BYTES:
-						# 手動送信
-						self._serial.write(data)
-						self._serial.flush()
-						notify_msg = [ThreadNotify.COMMIT_TX, data, name, curr_timestamp]
-						send_notify.put(notify_msg, block=True, timeout=timeout)
-					#if msg == ThreadNotify.AUTORESP_UPDATE:
-					#	# 自動応答データ更新
-					#	data()
-					#	# 自動応答更新完了を通知
-					#	notify_msg = [ThreadNotify.AUTORESP_UPDATE_FIN, None, None, None]
-					#	send_notify.put(notify_msg, block=True, timeout=timeout)
-					#if msg == ThreadNotify.EXIT_TASK:
-					#	# 
-					#	break
 
 		# 自動送信停止
 		# 本スレッドが稼働しなければ自動送信も動かないので、
