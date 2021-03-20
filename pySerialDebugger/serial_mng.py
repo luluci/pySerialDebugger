@@ -13,7 +13,7 @@ from . import thread
 
 
 
-DEBUG = False
+DEBUG = True
 
 class ThreadNotify(enum.Enum):
 	"""
@@ -230,6 +230,7 @@ class serial_manager:
 						# 手動送信
 						self._serial.write(msg.data)
 						self._serial.flush()
+						# 送信実施を通知
 						notify_msg = [ThreadNotify.COMMIT_TX, msg.data, msg.id, curr_timestamp]
 						send_notify.put(notify_msg, block=True, timeout=timeout)
 					if msg.notify == thread.ThreadNotify.AUTORESP_UPDATE:

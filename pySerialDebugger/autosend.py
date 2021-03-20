@@ -97,7 +97,7 @@ class autosend_node:
 		cls.gui_pad = pad
 		cls.gui_font = font
 
-	def __init__(self, autosend, mng: send_mng) -> None:
+	def __init__(self, autosend, mng: send_mng, row: int) -> None:
 		# 送信データ定義参照
 		self._send_mng = mng
 		# ユーザ定義データ取得
@@ -106,6 +106,7 @@ class autosend_node:
 		self.id = autosend[autosend_list.ID]
 		self.data_list: List[autosend_data] = autosend[autosend_list.DATA]
 		self.data_size: int = len(self.data_list)
+		self.row: int = row
 		# データ解析
 		for data in self.data_list:
 			data: autosend_data
@@ -150,12 +151,18 @@ class autosend_result:
 		return self._send_data
 
 class autosend_mng:
-	_exit_cb: Callable[[int], None] = None
-	_gui_update_cb: Callable[[int, int, int], None] = None
 
 	def __init__(self, autosend, mng: send_mng) -> None:
 		# コールバック
+		# データ送信
 		self._send_cb: Callable[[bytes], None] = None
+		# ボタン更新:自動送信有効化
+		self._cb_btn_activate: Callable[[int], None] = None
+		# ボタン更新:自動送信無効化
+		self._cb_btn_inactivate: Callable[[int], None] = None
+		#
+		self._exit_cb: Callable[[int], None] = None
+		self._gui_update_cb: Callable[[int, int, int], None] = None
 		# 送信データ定義への参照を設定
 		self._send_mng = mng
 		# 管理情報初期化
@@ -170,7 +177,7 @@ class autosend_mng:
 		enabled = False
 		for i, data in enumerate(autosend):
 			# 自動送信データ作成
-			new_node = autosend_node(data, mng)
+			new_node = autosend_node(data, mng, i)
 			# enableチェック
 			if enabled:
 				# すでにenableルールが出現していたら
@@ -189,22 +196,24 @@ class autosend_mng:
 			else:
 				print("id[" + new_node.id + "] is duplicate. idx[" + str(i) + "] is ignored.")
 
+	def set_cb_btn_activate(self, cb: Callable[[int], None]) -> None:
+		self._cb_btn_activate = cb
+
+	def set_cb_btn_inactivate(self, cb: Callable[[int], None]) -> None:
+		self._cb_btn_inactivate = cb
+
 	def set_send_cb(self, cb: Callable[[bytes], None]) -> None:
 		self._send_cb = cb
 
-	@classmethod
-	def set_exit_cb(cls, cb: Callable[[int], None]) -> None:
-		cls._exit_cb = cb
+	def set_exit_cb(self, cb: Callable[[int], None]) -> None:
+		self._exit_cb = cb
 
-	@classmethod
-	def set_gui_update_cb(cls, cb: Callable[[int, int, int], None]) -> None:
-		cls._gui_update_cb = cb
+	def set_gui_update_cb(self, cb: Callable[[int, int, int], None]) -> None:
+		self._gui_update_cb = cb
 
 
 	def start(self, idx: int) -> None:
 		self.activate(self._data_list[idx])
-		# GUI更新
-		# autosend_mng._gui_update_cb(idx, None, self._pos)
 
 	def end(self, idx: int) -> None:
 		# GUI更新
@@ -226,9 +235,16 @@ class autosend_mng:
 		"""
 		指定のnodeで自動送信を有効化する
 		"""
+		disable_row: int = None
+		enable_row: int = None
 		# すでにアクティブなルールがあれば無効化する
 		if self._active_node is not None:
+			disable_row = self._active_node.row
+			#autosend_mng._exit_cb(disable_row)
+			#
 			self._active_node.enable = False
+			# GUI更新
+			self._cb_btn_inactivate(disable_row)
 		# 引数で指定されたノードを有効化
 		node.enable = True
 		# 参照設定
@@ -236,6 +252,10 @@ class autosend_mng:
 		# パラメータ初期化
 		self._pos = 0
 		#self._timestamp = 0
+		# GUI更新
+		enable_row = node.row
+		self._cb_btn_activate(enable_row)
+		#autosend_mng._gui_update_cb(enable_row, None, self._pos)
 
 	def inactivate(self, node: autosend_node):
 		"""
@@ -243,6 +263,8 @@ class autosend_mng:
 		"""
 		if self._active_node == node:
 			self._active_node = None
+			# GUI更新
+			self._cb_btn_inactivate(node.row)
 		node.enable = False
 
 	def running(self) -> bool:
@@ -305,7 +327,6 @@ class autosend_mng:
 		self._set_pos(node, data._jump_to)
 
 	def _run_impl_exit(self, node: autosend_node) -> None:
-		#autosend_mng._exit_cb(idx)
 		self.inactivate(node)
 
 	def _next(self, node: autosend_node) -> None:

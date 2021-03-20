@@ -198,10 +198,13 @@ class gui_manager:
 			"btn_sendopt_update": self._hdl_btn_sendopt_update,
 			# GUI更新
 			"send": self._hdl_send_gui,
+			### 自動送信
 			# Button: AutoSend
 			"btn_autosend": self._hdl_btn_autosend,
+			"_swe_autosend_btn_activate": self._hdl_btn_autosend_activate,
+			"_swe_autosend_btn_inactivate": self._hdl_btn_autosend_inactivate,
 			# ButtonMenu:
-			# Script Write Event
+			### Script Write Event
 			"_swe_disconnected": self._hdl_swe_disconnected,
 			"_swe_autosend_disable": self._hdl_autosend_disable,
 			"_swe_autosend_gui_update": self._hdl_autosend_gui_update,
@@ -213,18 +216,17 @@ class gui_manager:
 		self.close()
 		print("exit")
 
+	def _gui_hdl_init(self):
+		self._conn_btn_hdl = self._window["btn_connect"]
+		self._conn_status_hdl = self._window["text_status"]
+		self._gui_hdl_autoresp_update_btn = self._window["btn_autoresp_update"]
+
 	def _hdl_send_gui(self, values, row, col):
 		"""
 		手動送信設定：送信HEXデータ入力GUIからの操作イベントハンドラ
 		"""
 		part: sg.Element = self._window[("send", row, col)]
-		#self._update_send_gui(part, self._send_data, self._send_data_tx, "send", row, col)
 		self._update_send_gui(part, "send", row, col)
-
-	def _gui_hdl_init(self):
-		self._conn_btn_hdl = self._window["btn_connect"]
-		self._conn_status_hdl = self._window["text_status"]
-		self._gui_hdl_autoresp_update_btn = self._window["btn_autoresp_update"]
 
 	def _hdl_btn_connect(self, values):
 		#print("Button Pushed!")
@@ -272,19 +274,6 @@ class gui_manager:
 			# GUI操作
 			self._conn_btn_hdl.Update(text="Disconnecting", disabled=True)
 			self._conn_status_hdl.Update(value="Disconnecting...")
-			# シリアル通信スレッドは終了したらThreadNotifyで通知する
-			# 自動送信を全終了
-			# self._autosend_mng.end(0)
-			#for row, autosend in enumerate(self._autosend_data):
-			#	if self._autosend_data[row].running():
-			#		# 自動送信有効のとき
-			#		# 自動送信を無効にする
-			#		self._comm_hdle_notify.put([ThreadNotify.AUTOSEND_DISABLE, row])
-			#		# GUI更新
-			#		self._window[("btn_autosend", row, None)].Update(text="Start")
-			#	else:
-			#		# 自動送信無効のとき
-			#		pass
 
 		elif self._gui_conn_state == self.DISCONNECTING:
 			# 切断完了判定を実施
@@ -370,7 +359,7 @@ class gui_manager:
 				# 自動送信有効のとき
 				# 自動送信を無効にする
 				# とりあえず直接操作。バグになるようならスレッド間メッセージで通知する
-				self._autosend_mng.stop(row)
+				self._autosend_mng.end(row)
 				#self._comm_hdle_notify.put([ThreadNotify.AUTOSEND_DISABLE, row])
 				# GUI更新
 				self._window[("btn_autosend", row, col)].Update(text="Start")
@@ -381,6 +370,21 @@ class gui_manager:
 				#self._comm_hdle_notify.put([ThreadNotify.AUTOSEND_ENABLE, row])
 				# GUI更新
 				self._window[("btn_autosend", row, col)].Update(text="Sending..")
+
+	def _hdl_btn_autosend_activate(self, values):
+		"""
+		自動応答からのコールバック
+		自動応答パターンマッチによる自動送信実行
+		"""
+		row = values["_swe_autosend_btn_activate"]
+		self._window[("btn_autosend", row, None)].Update(text="AutoResp..")
+
+	def _hdl_btn_autosend_inactivate(self, values):
+		"""
+		自動応答からのコールバック
+		"""
+		row = values["_swe_autosend_btn_inactivate"]
+		self._window[("btn_autosend", row, None)].Update(text="Start")
 
 	def _hdl_autosend_disable(self, values):
 		# GUI更新
@@ -418,19 +422,19 @@ class gui_manager:
 		while True:
 			event, values = self._window.read()
 
-			if event in self._events:
-				self._events[event](values)
 			if isinstance(event, tuple):
 				t_ev, idx, col = event
 				self._events[t_ev](values, idx, col)
-			if event in (None, 'Quit'):
+			elif event in self._events:
+				self._events[event](values)
+			elif event in (None, 'Quit', sg.WIN_CLOSED):
 				# 自動送信処理:シリアル通信側で停止(何もしない)
 				# 各スレッドに終了通知
-				thread.messenger.notify_exit_serial()
 				thread.messenger.notify_exit_hdlr()
+				thread.messenger.notify_exit_serial()
 				# queueを空にしておく
-				while not self._notify_from_serial.empty():
-					self._notify_from_serial.get_nowait()
+				thread.messenger.clear_notify_serial2hdrl()
+				thread.messenger.clear_notify_serial()
 				break
 		print("Exit: wnd_proc()")
 
@@ -741,13 +745,15 @@ class gui_manager:
 		self._autosend_head = gui_settings[1]
 		self._autosend_data = gui_settings[2]
 		# 定義解析
-		# 自動送信マネージャに手動送信用コールバックを登録
-		#autosend_mng.set_send_cb(self._autosend_send)
-		autosend_mng.set_exit_cb(self._autosend_exit)
-		autosend_mng.set_gui_update_cb(self._autosend_gui_update)
 		#
 		self._autosend_mng = autosend_mng(self._autosend_data, self._send_mng)
 		autosend_node.set_gui_info(self._size_tx, self._pad_tx, self._font_tx)
+		# 自動送信マネージャに手動送信用コールバックを登録
+		self._autosend_mng.set_cb_btn_activate(self._autosend_btn_activate)
+		self._autosend_mng.set_cb_btn_inactivate(self._autosend_btn_inactivate)
+		#autosend_mng.set_send_cb(self._autosend_send)
+		self._autosend_mng.set_exit_cb(self._autosend_exit)
+		self._autosend_mng.set_gui_update_cb(self._autosend_gui_update)
 		# 自動送信マネージャをシリアルマネージャに渡す
 		self._serial.autosend(self._autosend_mng)
 
@@ -782,6 +788,12 @@ class gui_manager:
 		#idx = self._send_data_ref[name]
 		# 送信データをGUIから取得して送信する場合
 		self._req_send_bytes(row)
+
+	def _autosend_btn_activate(self, idx: int) -> None:
+		self._window.write_event_value("_swe_autosend_btn_activate", idx)
+
+	def _autosend_btn_inactivate(self, idx: int) -> None:
+		self._window.write_event_value("_swe_autosend_btn_inactivate", idx)
 
 	def _autosend_exit(self, idx: int) -> None:
 		self._window.write_event_value("_swe_autosend_disable", idx)
@@ -826,20 +838,6 @@ class gui_manager:
 		self._sendopt_tx_delay = int(time)
 		self._serial.sendopt_txdelay_update(self._sendopt_tx_delay)
 
-	def _calc_fcc(self, data:bytes, begin:int, end:int, pos:int) -> int:
-		"""
-		FCC計算
-		dataの(begin,end]要素の総和の2の補数を計算する
-		* beginは含む、endは含まない
-		(begin,end] がdata長を超えたら 0x00 を加算とする（何もしない）
-		"""
-		fcc: int = 0
-		data_len = len(data)
-		for i in range(begin, end):
-			if (i != pos) and (i < data_len):
-				fcc += data[i]
-		fcc = ((fcc ^ 0xFF) + 1) % 256
-		return fcc
 
 
 

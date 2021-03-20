@@ -107,6 +107,12 @@ class msg_manager:
 	"""
 	シリアル通信スレッドへ通知
 	"""
+
+	def clear_notify_serial(self):
+		# queueを空にしておく
+		while not self.q_gui2serial_msg.empty():
+			self.q_gui2serial_msg.get_nowait()
+
 	def is_full_notify_serial(self):
 		return self.q_gui2serial_msg.full()
 
@@ -137,6 +143,11 @@ class msg_manager:
 	"""
 	管理制御スレッドへ通知
 	"""
+
+	def clear_notify_serial2hdrl(self):
+		# queueを空にしておく
+		while not self.q_serial2hdlr_msg.empty():
+			self.q_serial2hdlr_msg.get_nowait()
 
 	def has_notify_serial2hdrl(self):
 		return not self.q_serial2hdlr_msg.empty()

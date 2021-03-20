@@ -35,6 +35,7 @@ def send_settings() -> None:
 		[	"TestSend_C",		hex('01CC000000FF'),		-1,			6,			0,				4,				],
 		[	"TestSend_D",		[ fix('01'), fix('DD'), inp16be('1234'), sel({'ON':1, 'OFF':0}) ],		-1,			6,			0,				4,				],
 		[	"TestSend_X",		hex('0100FF'),				-1,			3,			1,				2,				],
+		[	"TestSend_Y",		hex('0A00FF'),				-1,			3,			1,				2,				],
 	]
 	#
 	return (caption, head, data)
@@ -59,10 +60,12 @@ def autosend_settings() -> None:
 			"[Act]",	"[ID]", 				"[SendInfo]",
 	]
 	data = [
-		[	False,		"TestAutoSend1",		[send("TestSend_A"), wait(50), send("TestSend_B"), exit()]],
-		[	False,		"TestAutoSend2",		[send("TestSend_C"), wait(50), send("TestSend_D"), exit()]],
-		[	False,		"TestAutoSend3",		[send("TestSend_X"), wait(25), send("TestSend_X"), exit()]],
+		[	False,		"TestAutoSend1",		[send("TestSend_A"), wait(50), send("TestSend_B"), wait(50)]],
+		[	False,		"TestAutoSend2",		[send("TestSend_C"), wait(50), send("TestSend_D"), wait(50)]],
+		[	False,		"TestAutoSend3",		[send("TestSend_X"), wait(25), send("TestSend_X"), wait(50)]],
 		[	False,		"TestAutoSend4",		[send("TestSend_X"), wait(25), send("TestSend2"), wait(100), send("TestSend3"), wait(100), send("TestSend2"), jump(3)]],
+		[	False,		"TestAutoSend5",		[send("TestSend_X"), wait(500)]],
+		[	False,		"TestAutoSend6",		[send("TestSend_Y"), wait(500)]],
 	]
 	#
 	return (caption, head, data)
