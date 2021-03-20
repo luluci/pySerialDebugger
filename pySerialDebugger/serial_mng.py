@@ -9,6 +9,9 @@ import enum
 
 from .autoresp import autoresp_data, autoresp_list, autoresp_mng
 from .autosend import autosend_data, autosend_mng, autosend_node, autosend_list, autosend_result
+from . import thread
+
+
 
 DEBUG = True
 
@@ -134,7 +137,7 @@ class serial_manager:
 		# ナノ秒に直しておく
 		self._send_tx_delay = time * 1000
 
-	def connect(self, recv_notify: queue.Queue, send_notify: queue.Queue, exit: queue.Queue) -> None:
+	def connect(self, recv_notify: queue.Queue, send_notify: queue.Queue) -> None:
 		"""
 		Serial open and communicate.
 		無限ループで通信を続けるのでスレッド化して実施する。
@@ -169,7 +172,7 @@ class serial_manager:
 		else:
 			self._debug_serial_read_init()
 		# listening
-		while exit.empty():
+		while not thread.messenger.has_exit_serial():
 			if not DEBUG:
 				# シリアル通信バッファチェック
 				recv = self._serial.read(1)
@@ -217,6 +220,17 @@ class serial_manager:
 						notify_msg = [ThreadNotify.COMMIT_TX, data.data_bytes, data.id, self._time_stamp]
 						send_notify.put(notify_msg, block=True, timeout=timeout)
 			# GUIからの通知チェック
+			if thread.messenger.has_notify_serial():
+				# 前回シリアル受信から一定時間内は受信中とみなし送信を抑制する
+				# この待機時間はGUIから設定する
+				curr_timestamp = time.perf_counter_ns()
+				if (curr_timestamp - self._time_stamp_rx) >= self._send_tx_delay:
+					msg = thread.messenger.get_notify_serial()
+					if msg.notify == thread.ThreadNotify.AUTORESP_UPDATE:
+						# コールバック関数で更新を実施
+						msg.cb()
+						# 自動応答データ設定更新完了を通知
+						thread.messenger.notify_hdlr_autoresp_updated()
 			if not recv_notify.empty():
 				# 前回シリアル受信から一定時間内は受信中とみなし送信を抑制する
 				# この待機時間はGUIから設定する
@@ -230,23 +244,24 @@ class serial_manager:
 						self._serial.flush()
 						notify_msg = [ThreadNotify.COMMIT_TX, data, name, curr_timestamp]
 						send_notify.put(notify_msg, block=True, timeout=timeout)
-					if msg == ThreadNotify.AUTORESP_UPDATE:
-						# 自動応答データ更新
-						data()
-						# 自動応答更新完了を通知
-						notify_msg = [ThreadNotify.AUTORESP_UPDATE_FIN, None, None, None]
-						send_notify.put(notify_msg, block=True, timeout=timeout)
-					if msg == ThreadNotify.EXIT_TASK:
-						# 
-						break
+					#if msg == ThreadNotify.AUTORESP_UPDATE:
+					#	# 自動応答データ更新
+					#	data()
+					#	# 自動応答更新完了を通知
+					#	notify_msg = [ThreadNotify.AUTORESP_UPDATE_FIN, None, None, None]
+					#	send_notify.put(notify_msg, block=True, timeout=timeout)
+					#if msg == ThreadNotify.EXIT_TASK:
+					#	# 
+					#	break
 
 		# 自動送信停止
-		self._autosend_mng.end(0)
+		# 本スレッドが稼働しなければ自動送信も動かないので、
+		# とりあえず動作を止めずに終了する。
+		# self._autosend_mng.stop()
 		# シリアル通信切断
 		self.close()
-		# queueを空にしておく
-		while not exit.empty():
-			exit.get_nowait()
+		# exit通知クリア
+		thread.messenger.clear_exit_serial()
 		# 処理を終了することを通知
 		notify_msg = [ThreadNotify.DISCONNECTED, None, None, None]
 		send_notify.put(notify_msg, block=True, timeout=timeout)

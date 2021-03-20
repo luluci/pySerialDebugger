@@ -12,7 +12,7 @@ from .send_node import send_data, send_data_node, send_mng, send_data_list
 from .autosend import autosend_data, autosend_mng, autosend_node, autosend_list
 from .autoresp import autoresp_data, autoresp_list, autoresp_mng
 from . import user_settings
-
+from . import thread
 
 
 
@@ -187,6 +187,8 @@ class gui_manager:
 			# Button: Connect
 			"btn_connect": self._hdl_btn_connect,
 			### 自動応答
+			# 有効設定更新
+			"autoresp_enable": self._hdl_autoresp_enable,
 			# データ更新
 			"btn_autoresp_update": self._hdl_btn_autoresp_update,
 			# GUI更新
@@ -248,7 +250,7 @@ class gui_manager:
 			if self._serial_open():
 				# オープンに成功したら
 				# スレッドにて通信制御を開始
-				self._future_serial = self._executer.submit(self._serial.connect, self._notify_to_serial, self._notify_from_serial, self._exit_flag_serial)
+				self._future_serial = self._executer.submit(self._serial.connect, self._notify_to_serial, self._notify_from_serial)
 				# GUI更新
 				self._conn_btn_hdl.Update(text="Disconnect")
 				self._conn_status_hdl.Update(value=self._get_com_info())
@@ -272,15 +274,13 @@ class gui_manager:
 				print("接続済みのはずなのにスレッドが非稼働中。バグでは？")
 			else:
 				# スレッドに終了通知
-				#self._notify_to_serial.put([serial_mng.ThreadNotify.EXIT_TASK, None, None])
-				self._exit_flag_serial.put(True)
+				thread.messenger.notify_exit_serial()
 			# 切断中に移行
 			self._gui_conn_state = self.DISCONNECTING
 			# GUI操作
 			self._conn_btn_hdl.Update(text="Disconnecting", disabled=True)
 			self._conn_status_hdl.Update(value="Disconnecting...")
-			# イベント周期で切断をポーリング
-			# self._window.write_event_value("btn_connect", "")
+			# シリアル通信スレッドは終了したらThreadNotifyで通知する
 			# 自動送信を全終了
 			# self._autosend_mng.end(0)
 			#for row, autosend in enumerate(self._autosend_data):
@@ -329,14 +329,43 @@ class gui_manager:
 		# 次状態へ
 		self._gui_conn_state = self.DISCONNECTED
 
+
+	def _hdl_autoresp_enable(self, values, row:int, col:int):
+		"""
+		イベントハンドラ：有効設定更新
+		"""
+		# 有効設定取得
+		value = values[("autoresp_enable", row, col)]
+		# 設定更新
+		self._autoresp_mng.update_enable(value, row)
+
+
 	def _hdl_btn_autoresp_update(self, values):
+		"""
+		イベントハンドラ：自動応答設定更新
+
+		"""
+		# シリアル通信稼働中はメッセージを投げるのでGUIを無効化
 		if self._serial.is_open():
 			# データ更新までボタン無効化
 			self._gui_hdl_autoresp_update_btn.Update(text="Updating...", disabled=True)
+
+		# 設定情報のチェックを実施
+		dup_check = self._autoresp_mng.update_tree_check()
+		if dup_check:
+			# 重複があれば先優先で、残りは無効化
+			print("*warning* enable setting is duplicate, automatically fixed.")
+			for idx in dup_check:
+				self._window[("autoresp_enable", idx, None)].update(value=False)
+
+		# 自動応答データ設定を更新
+		if self._serial.is_open():
 			# シリアル通信スレッドに自動応答データ更新のリクエストを投げる
-			self._notify_to_serial.put([serial_mng.ThreadNotify.AUTORESP_UPDATE, self._auto_response_update, None])
+			#self._notify_to_serial.put([serial_mng.ThreadNotify.AUTORESP_UPDATE, self._autoresp_update, None])
+			thread.messenger.notify_serial_autoresp_update(self._autoresp_update)
 		else:
-			self._auto_response_update()
+			# 非通信時は直接更新
+			self._autoresp_update()
 
 	def _hdl_btn_send(self, values, row, col):
 		self._req_send_bytes(row)
@@ -345,18 +374,20 @@ class gui_manager:
 		self._sendopt_update()
 
 	def _hdl_btn_autosend(self, values, row, col):
-		self._autosend_data: List[autosend_mng]
 		if self._serial.is_open():
-			if self._autosend_data[row].running():
+			if self._autosend_mng.running():
 				# 自動送信有効のとき
 				# 自動送信を無効にする
-				self._comm_hdle_notify.put([ThreadNotify.AUTOSEND_DISABLE, row])
+				# とりあえず直接操作。バグになるようならスレッド間メッセージで通知する
+				self._autosend_mng.stop(row)
+				#self._comm_hdle_notify.put([ThreadNotify.AUTOSEND_DISABLE, row])
 				# GUI更新
 				self._window[("btn_autosend", row, col)].Update(text="Start")
 			else:
 				# 自動送信無効のとき
 				# 自動送信を有効にする
-				self._comm_hdle_notify.put([ThreadNotify.AUTOSEND_ENABLE, row])
+				self._autosend_mng.start(row)
+				#self._comm_hdle_notify.put([ThreadNotify.AUTOSEND_ENABLE, row])
 				# GUI更新
 				self._window[("btn_autosend", row, col)].Update(text="Sending..")
 
@@ -378,17 +409,16 @@ class gui_manager:
 		self._future_comm_hdle = None
 		self._future_serial = None
 		# スレッド間通信用キュー
-		self._exit_flag_serial = queue.Queue(10)
+		self._comm_hdle_notify = queue.Queue(10)
+
 		self._notify_to_serial = queue.Queue(10)
 		self._notify_from_serial = queue.Queue(10)
-		self._exit_flag_comm_hdle = queue.Queue(10)
-		self._comm_hdle_notify = queue.Queue(10)
 		# (1) Windows イベントハンドラ
 		# (2) シリアル通信
 		# (3) 全体管理(シリアル通信->送受信->GUI)
 		# の3スレッドで処理を実施する
 		self._executer = concurrent.futures.ThreadPoolExecutor(max_workers=3)
-		self._future_comm_hdle = self._executer.submit(self.comm_hdle, self._exit_flag_comm_hdle, self._notify_from_serial, self._comm_hdle_notify)
+		self._future_comm_hdle = self._executer.submit(self.comm_hdle, self._notify_from_serial, self._comm_hdle_notify)
 		self.wnd_proc()
 		self._executer.shutdown()
 		self.close()
@@ -404,32 +434,33 @@ class gui_manager:
 				t_ev, idx, col = event
 				self._events[t_ev](values, idx, col)
 			if event in (None, 'Quit'):
-				# 自動送信処理終了
-				#self._autosend_mng.end(0)
-				#node: autosend_mng
-				#for i, node in enumerate(self._autosend_data):
-				#	node._enable = False
+				# 自動送信処理:シリアル通信側で停止(何もしない)
 				# 各スレッドに終了通知
-				#self._notify_to_serial.put([serial_mng.ThreadNotify.EXIT_TASK, None, None])
-				self._exit_flag_serial.put(True)
-				self._exit_flag_comm_hdle.put(True)
+				thread.messenger.notify_exit_serial()
+				thread.messenger.notify_exit_hdlr()
 				# queueを空にしておく
 				while not self._notify_from_serial.empty():
 					self._notify_from_serial.get_nowait()
 				break
 		print("Exit: wnd_proc()")
 
-	def comm_hdle(self, exit_flag: queue.Queue, serial_notify: queue.Queue, self_notify: queue.Queue):
+	def comm_hdle(self, serial_notify: queue.Queue, self_notify: queue.Queue):
 		self.log_str = ""
 		self.log_pos = 0
 		timestamp_curr: int = 0
 		timestamp_rx: int = 0
 		rx_commit_interval: int = 1 * 1000 * 1000 * 1000	# 1sec無受信でコミット
 		try:
-			while exit_flag.empty():
+			# exit通知があるまでループ
+			while not thread.messenger.has_exit_hdlr():
 				# 今回現在時間取得
 				timestamp_curr = time.perf_counter_ns()
 				# シリアル通信からの指令を待機
+				if thread.messenger.has_notify_serial2hdrl():
+					msg = thread.messenger.get_notify_serial2hdrl()
+					if msg.notify == thread.ThreadNotify.AUTORESP_UPDATE_FIN:
+						# データ更新でボタン有効化
+						self._gui_hdl_autoresp_update_btn.Update(text="Update", disabled=False)
 				if not serial_notify.empty():
 					# queueからデータ取得
 					notify, data, autoresp_name, timestamp = serial_notify.get_nowait()
@@ -454,9 +485,9 @@ class gui_manager:
 						# self_notify.put(True)
 						# スレッドセーフらしい
 						self._window.write_event_value("_swe_disconnected", "")
-					elif notify == serial_mng.ThreadNotify.AUTORESP_UPDATE_FIN:
-						# データ更新でボタン有効化
-						self._gui_hdl_autoresp_update_btn.Update(text="Update", disabled=False)
+					#elif notify == serial_mng.ThreadNotify.AUTORESP_UPDATE_FIN:
+					#	# データ更新でボタン有効化
+					#	self._gui_hdl_autoresp_update_btn.Update(text="Update", disabled=False)
 					else:
 						pass
 				# GUIからの指令を待機
@@ -466,14 +497,12 @@ class gui_manager:
 					# 通知毎処理
 					if notify == ThreadNotify.AUTOSEND_ENABLE:
 						# 自動送信有効化
-						self._autosend_data[pos].start(pos)
+						#self._autosend_data[pos].start(pos)
+						pass
 					elif notify == ThreadNotify.AUTOSEND_DISABLE:
 						# 自動送信無効化
-						self._autosend_data[pos].end(pos)
-				# 自動送信処理
-				#node: autosend_mng
-				#for i, node in enumerate(self._autosend_data):
-				#	node.run(i, timestamp_curr)
+						#self._autosend_data[pos].end(pos)
+						pass
 				# 一定時間受信が無ければ送信バッファをコミット
 				if (timestamp_curr - timestamp_rx) > rx_commit_interval:
 					if self.log_str != "":
@@ -484,6 +513,7 @@ class gui_manager:
 				# GUIに処理を回す
 				time.sleep(0.000001)
 				#print("Run: serial_hdle()")
+			# 処理終了
 			print("Exit: serial_hdle()")
 		except:
 			import traceback
@@ -632,7 +662,7 @@ class gui_manager:
 			row = len(self._layout_autoresp_data)
 			parts = []
 			# Add AutoResponse_Enable
-			parts.append(sg.Checkbox("", default=resp[autoresp_list.ENABLE], key=("autoresp_enable",row, None), size=(2, 1), font=self._font_enable))
+			parts.append(sg.Checkbox("", default=resp[autoresp_list.ENABLE], key=("autoresp_enable",row, None), size=(2, 1), font=self._font_enable, enable_events=True))
 			# Add Name
 			parts.append(sg.Text(resp[autoresp_list.ID], size=self._size_name, font=self._font_name))
 			# Add RecvData
@@ -898,13 +928,12 @@ class gui_manager:
 
 
 
-	def _auto_response_update(self) -> None:
+	def _autoresp_update(self) -> None:
 		"""
 		GUI上で更新された自動応答設定を反映する
 		"""
-		# SerialManagaerに通知
-		#for i, resp in enumerate(self._autoresp_data):
-		#	self._serial.autoresp_update(resp[DataConf.NAME], self._autoresp_data_tx[i], resp[DataConf.ENABLE])
+		# 
+		self._autoresp_mng.update_tree()
 
 	def _req_send_bytes(self, idx:int) -> None:
 		"""

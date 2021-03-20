@@ -106,11 +106,17 @@ class autoresp_node:
 		self.tail: bool = False
 		self.tail_list: Dict[str, autoresp_tail_node] = {}
 		self.tail_active: autoresp_tail_node = None
+		#
+		self.tail_id: int = None
 
 class autoresp_tail_node:
 	def __init__(self) -> None:
+		# ノード情報
 		self.enable: bool = False
 		self.id: str = None
+		# 参照情報
+		self.autoresp_ref: autoresp_node = None
+		# 送信データ情報
 		self.send_id: str = None
 		self.senddata_ref = None
 
@@ -207,16 +213,21 @@ class autoresp_mng:
 	def __init__(self, autoresp, mng: autosend_mng) -> None:
 		# 自動送信データへの参照
 		self._autosend_mng: autosend_mng = mng
-		# アクセス用にリストと辞書の両方で参照を持つ
-		self.mng_dict: Dict[str,autoresp_node] = {}
-		self.mng_list: List[str,autoresp_node] = []
 		# 解析ツリー
 		self.tree = autoresp_node()
 		self.tree.root = True
-		self.tail_ref = {}				# tailノードへの参照
+		# ツリーのtailへの参照
+		self.tree_tail_dict: Dict[str,autoresp_node] = {}
+		self.tree_tail_list: List[autoresp_node] = []
+		# 各自動応答データ設定の管理はtail_nodeになる
+		# アクセス用にリストと辞書の両方で参照を持つ
+		self.data_dict: Dict[str, autoresp_tail_node] = {}
+		self.data_list: List[autoresp_tail_node] = []
 		# 解析情報
 		self._curr_node: autoresp_node = None
 		self._prev_recv_analyze_result: bool = True
+		# 処理時にノードを区別するためのID。なんでもいい
+		_tail_id: int = 0
 
 		"""
 		受信データ定義が次のようになっているとき
@@ -240,6 +251,8 @@ class autoresp_mng:
 		for i, resp in enumerate(autoresp):
 			# 解析ツリーを構築
 			tgt_node: List[autoresp_node] = []
+			# マージが発生するときはnext_nodeが複数発生するのでリストになっている。
+			# 現状でマージは実施しないので、常に要素数は1になっている。
 			next_node: List[autoresp_node] = []
 			tgt_node.append(self.tree)
 			# 定義データをすべてチェック
@@ -288,11 +301,19 @@ class autoresp_mng:
 			# tailノード作成
 			tail_node = self._maketree_make_tail(resp)
 			# 末尾ノードチェック
+			if len(tgt_node) > 1:
+				raise Exception("error: 現状の実装で要素数が1を超えることはありえない")
 			for tail in tgt_node:
 				tail.tail = True
+				tail.tail_id = _tail_id
+				_tail_id += 1
+				# ツリー情報登録
+				self.tree_tail_list.append(tail)
 				# tail情報登録
 				if tail_node.id not in tail.tail_list.keys():
 					tail.tail_list[tail_node.id] = tail_node
+				# autoresp_tail_node -> autoresp_node 参照設定
+				tail_node.autoresp_ref = tail
 				# enableチェック
 				if tail.tail_active is None:
 					if tail_node.enable:
@@ -309,7 +330,7 @@ class autoresp_mng:
 
 	def _maketree_make_tail(self, resp) -> autoresp_tail_node:
 		id = resp[autoresp_list.ID]
-		if id not in self.tail_ref.keys():
+		if id not in self.data_dict.keys():
 			# インスタンス作成
 			node = autoresp_tail_node()
 			# 情報設定
@@ -323,11 +344,15 @@ class autoresp_mng:
 			else:
 				node.senddata_ref = self._autosend_mng._data_dict[node.send_id]
 			# 参照登録
-			self.tail_ref[node.id] = node
+			self.data_dict[node.id] = node
 		else:
 			# 参照取得
-			node = self.tail_ref[id]
+			node = self.data_dict[id]
 			print("tail_node作成済み???")
+		# リスト参照登録
+		# ユーザ定義データの順にひもづく
+		# IDに重複があればここまでの処理で除去している
+		self.data_list.append(node)
 		# 終了
 		return node
 
@@ -467,7 +492,8 @@ class autoresp_mng:
 			# 受信解析正常終了
 			result.set_analyze_succeeded(self._curr_node.tail_active)
 			# 自動応答設定
-			self._autosend_mng.activate(self._curr_node.tail_active.senddata_ref)
+			if self._curr_node.tail_active is not None:
+				self._autosend_mng.activate(self._curr_node.tail_active.senddata_ref)
 		else:
 			# 解析継続中
 			result.set_analyzing()
@@ -504,6 +530,42 @@ class autoresp_mng:
 			# 解析失敗継続
 			result.set_analyze_failed()
 
+
+	def update_enable(self, value:bool, row:int):
+		"""
+		有効設定更新
+		"""
+		self.data_list[row].enable = value
+
+	def update_tree_check(self):
+		"""
+		設定を解析ツリーに反映する
+		"""
+		# 有効設定に重複が無いかチェックする
+		dup_list = []
+		check_dict = {}
+		for i, tail_node in enumerate(self.data_list):
+			if tail_node.autoresp_ref.tail_id not in check_dict.keys():
+				# 未登録であれば登録
+				check_dict[tail_node.autoresp_ref.tail_id] = tail_node.enable
+			else:
+				# enable=Trueが重複していたらチェックしておく
+				if tail_node.enable and check_dict[tail_node.autoresp_ref.tail_id]:
+					tail_node.enable = False
+					dup_list.append(i)
+		return dup_list
+		
+	def update_tree(self):
+		"""
+		設定を解析ツリーに反映する
+		"""
+		# 有効設定をクリア
+		for tail in self.tree_tail_list:
+			tail.tail_active = None
+		# 末尾情報を更新して有効設定を反映する
+		for i, tail_node in enumerate(self.data_list):
+			if tail_node.enable:
+				tail_node.autoresp_ref.tail_active = tail_node
 
 
 

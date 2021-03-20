@@ -101,6 +101,7 @@ class autosend_node:
 		# 送信データ定義参照
 		self._send_mng = mng
 		# ユーザ定義データ取得
+		# デフォルトで無効にするか？　とりあえずなりゆき
 		self.enable = autosend[autosend_list.ENABLE]
 		self.id = autosend[autosend_list.ID]
 		self.data_list: List[autosend_data] = autosend[autosend_list.DATA]
@@ -165,9 +166,22 @@ class autosend_mng:
 		self._data_list: List[autosend_node] = []
 		self._data_dict: Dict[str, autosend_node] = {}
 
+		# 自動送信データ定義ノードを解析
+		enabled = False
 		for i, data in enumerate(autosend):
 			# 自動送信データ作成
 			new_node = autosend_node(data, mng)
+			# enableチェック
+			if enabled:
+				# すでにenableルールが出現していたら
+				# 先優先で残りはすべてdisableに倒す
+				new_node.enable = False
+			else:
+				# enableルール未出現なら、enable判定
+				if new_node.enable:
+					self._active_node = new_node
+					enabled = True
+
 			# データ登録
 			self._data_list.append(new_node)
 			if new_node.id not in self._data_dict.keys():
@@ -196,52 +210,81 @@ class autosend_mng:
 		# GUI更新
 		#autosend_mng._gui_update_cb(idx, self._pos, None)
 		# パラメータ初期化
-		self._active_node = None
+		# self._active_node = None
+		# とりあえず有効設定はそのまま残しておく
+		self.inactivate(self._data_list[idx])
+
+	def stop(self):
+		"""
+		全停止する
+		"""
+		if self._active_node is not None:
+			self._active_node.enable = False
+			self._active_node = None
 
 	def activate(self, node:autosend_node):
 		"""
 		指定のnodeで自動送信を有効化する
 		"""
+		# すでにアクティブなルールがあれば無効化する
+		if self._active_node is not None:
+			self._active_node.enable = False
+		# 引数で指定されたノードを有効化
+		node.enable = True
 		# 参照設定
 		self._active_node = node
 		# パラメータ初期化
 		self._pos = 0
 		#self._timestamp = 0
 
+	def inactivate(self, node: autosend_node):
+		"""
+		指定されたnodeの自動送信を無効化する。
+		"""
+		if self._active_node == node:
+			self._active_node = None
+		node.enable = False
+
 	def running(self) -> bool:
-		return self._enable
+		if self._active_node is not None:
+			return True
+		else:
+			return False
 
 	def run(self, idx: int, timestamp: int) -> autosend_result:
 		# 処理結果情報初期化
 		self._result = autosend_result()
 		# 自動送信処理
-		if self._active_node is not None:
-			self._run_impl(self._active_node.data_list[self._pos], idx, timestamp)
+		# スレッド間排他のために最初にノードを取り出しておく
+		tgt_node = self._active_node
+		if tgt_node is not None:
+			tgt_data = tgt_node.data_list[self._pos]
+			self._run_impl(tgt_node, tgt_data, timestamp)
 		# 結果を返す
 		return self._result
 
-	def _run_impl(self, data:autosend_data, idx: int, timestamp: int) -> None:
+	def _run_impl(self, node: autosend_node, data: autosend_data, timestamp: int) -> None:
 		node_type = data._node_type
 		if node_type == autosend_data.SEND:
-			self._run_impl_send(data, idx, timestamp)
+			self._run_impl_send(node, data, timestamp)
 		elif node_type == autosend_data.WAIT:
-			self._run_impl_wait(data, idx, timestamp)
+			self._run_impl_wait(node, data, timestamp)
 		elif node_type == autosend_data.JUMP:
-			self._run_impl_jump(data, idx, timestamp)
+			self._run_impl_jump(node, data, timestamp)
 		elif node_type == autosend_data.EXIT:
-			self._run_impl_exit(data, idx)
+			self._run_impl_exit(node)
 
-	def _run_impl_send(self, data: autosend_data, idx: int, timestamp: int) -> None:
+	def _run_impl_send(self, node: autosend_node, data: autosend_data, timestamp: int) -> None:
 		# タイムスタンプ更新
 		self._timestamp = timestamp
 		# 送信実行
 		self._send_cb(data._send_ref.data_bytes)
 		# 次のシーケンスへ遷移
-		self._next(idx)
+		self._next(node)
 		# 結果作成
 		self._result.set_send(data._send_ref)
 
-	def _run_impl_wait(self, data: autosend_data, idx: int, timestamp: int) -> None:
+	def _run_impl_wait(self, node: autosend_node, data: autosend_data, timestamp: int) -> None:
 		if self._timestamp == 0:
 			# タイムスタンプ更新
 			self._timestamp = timestamp
@@ -251,33 +294,33 @@ class autosend_mng:
 			if diff >= data._wait_time:
 				# タイムスタンプ初期化
 				self._timestamp = timestamp
-				self._next(idx)
+				self._next(node)
 		# 結果作成
 		self._result.set_wait()
 
-	def _run_impl_jump(self, data: autosend_data, idx: int, timestamp: int) -> None:
+	def _run_impl_jump(self, node: autosend_node, data: autosend_data, timestamp: int) -> None:
 		# タイムスタンプ更新
 		self._timestamp = timestamp
 		# 指定のシーケンスへジャンプ
-		self._set_pos(idx, data._jump_to)
+		self._set_pos(node, data._jump_to)
 
-	def _run_impl_exit(self, data: autosend_data, idx: int) -> None:
+	def _run_impl_exit(self, node: autosend_node) -> None:
 		#autosend_mng._exit_cb(idx)
-		self.end(idx)
+		self.inactivate(node)
 
-	def _next(self, idx: int) -> None:
+	def _next(self, node: autosend_node) -> None:
 		idx_disable = self._pos
 		self._pos += 1
-		if self._pos >= self._active_node.data_size:
+		if self._pos >= node.data_size:
 			self._pos = 0
 		idx_enable = self._pos
 		# GUI更新
 		# autosend_mng._gui_update_cb(idx, idx_disable, idx_enable)
 
-	def _set_pos(self, idx: int, pos: int) -> None:
+	def _set_pos(self, node: autosend_node, pos: int) -> None:
 		idx_disable = self._pos
 		self._pos = pos
-		if self._pos >= self._active_node.data_size:
+		if self._pos >= node.data_size:
 			self._pos = 0
 		idx_enable = self._pos
 		# GUI更新
