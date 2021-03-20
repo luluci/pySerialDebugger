@@ -330,6 +330,8 @@ class send_data_node:
 		self._make_send_data()
 		# FCC算出
 		self.update_fcc()
+		# 作成したbytearrayをbytesに反映
+		self.update_bytes()
 
 	def _calc_send_data_size(self) -> int:
 		# 送信データ定義の長さ、送信データサイズ定義、FCC位置を比較
@@ -411,18 +413,19 @@ class send_data_node:
 		FCCを計算して反映する
 		"""
 		# FCC位置がNoneのときは対象外
+		fcc = None
 		if self.fcc_pos is not None:
 			# FCCを計算して反映
 			fcc = self.calc_fcc()
 			self.data_array[self.fcc_pos] = fcc
-			# bytesを更新する
-			self.data_bytes = bytes(self.data_array)
 			# FCC算出結果をdata_listに反映する。
 			if self.data_list is not None:
 				# FCC位置にあるsend_dataのインデックスを取得
 				idx = self.map_data2gui[self.fcc_pos]
 				# send_dataを更新
 				self.data_list[idx].set_value(fcc.to_bytes(1, 'little'), 0)
+		# 返す
+		return fcc
 
 	def calc_fcc(self):
 		"""
@@ -438,6 +441,13 @@ class send_data_node:
 		fcc = ((fcc ^ 0xFF) + 1) % 256
 		return fcc
 
+	def update_bytes(self):
+		"""
+		bytesデータを更新する
+		"""
+		# bytesを更新する
+		self.data_bytes = bytes(self.data_array)
+
 	def get_gui(self, key:str, row:int):
 		# gui部品リストを初期化
 		parts = []
@@ -449,6 +459,34 @@ class send_data_node:
 			parts.append( data.get_gui(key, row, col) )
 		#
 		return parts
+
+	def set_gui_value(self, wnd:sg.Window, key:str, row:int, col: int, gui_data: str) -> bytes:
+		"""
+		GUIから取得できるstrを受け取る。
+		GUI部品に渡してstrを解析し、bytesとして取得する。
+		"""
+		# 該当GUI部品を取得
+		data: send_data = self.data_list[col]
+		# GUI部品にGUI入力値を渡して、解析結果を受け取る
+		value = data.get_value(gui_data)
+		# bytearrayを更新
+		for i, byte in enumerate(value):
+			self.data_array[col+i] = byte
+		# FCC算出
+		fcc = self.update_fcc()
+		# 作成したbytearrayをbytesに反映
+		self.update_bytes()
+		# 変更した可能性のあるデータはGUIに書き戻す
+		# 今回変更データ
+		gui_tgt = wnd[(key, row, col)]
+		gui_tgt.Update(value=data.get_gui_value('X'))
+		# FCC
+		if fcc is not None:
+			fcc_idx = self.map_data2gui[self.fcc_pos]
+			fcc_data = self.data_list[fcc_idx]
+			gui_fcc = wnd[(key, row, fcc_idx)]
+			gui_fcc.Update(value=fcc_data.get_gui_value())
+
 
 class send_mng:
 

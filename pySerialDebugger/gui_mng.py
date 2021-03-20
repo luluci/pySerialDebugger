@@ -191,15 +191,13 @@ class gui_manager:
 			"autoresp_enable": self._hdl_autoresp_enable,
 			# データ更新
 			"btn_autoresp_update": self._hdl_btn_autoresp_update,
-			# GUI更新
-			"resp": self._hdl_hex_ui_resp,
 			### 送信
 			# 送信ボタン
 			"btn_send": self._hdl_btn_send,
 			# オプション更新
 			"btn_sendopt_update": self._hdl_btn_sendopt_update,
 			# GUI更新
-			"send": self._hdl_hex_ui_send,
+			"send": self._hdl_send_gui,
 			# Button: AutoSend
 			"btn_autosend": self._hdl_btn_autosend,
 			# ButtonMenu:
@@ -215,19 +213,13 @@ class gui_manager:
 		self.close()
 		print("exit")
 
-	def _hdl_hex_ui_resp(self, values, row, col):
-		"""
-		自動応答設定：送信HEXデータ入力GUIからの操作イベントハンドラ
-		"""
-		part: sg.Element = self._window[("resp", row, col)]
-		self._update_sendhex_gui(part, self._autoresp_data, self._autoresp_data_tx, "resp", row, col)
-
-	def _hdl_hex_ui_send(self, values, row, col):
+	def _hdl_send_gui(self, values, row, col):
 		"""
 		手動送信設定：送信HEXデータ入力GUIからの操作イベントハンドラ
 		"""
 		part: sg.Element = self._window[("send", row, col)]
-		self._update_sendhex_gui(part, self._send_data, self._send_data_tx, "send", row, col)
+		#self._update_send_gui(part, self._send_data, self._send_data_tx, "send", row, col)
+		self._update_send_gui(part, "send", row, col)
 
 	def _gui_hdl_init(self):
 		self._conn_btn_hdl = self._window["btn_connect"]
@@ -821,8 +813,14 @@ class gui_manager:
 				tgt = bytes(temp)
 		return tgt
 
+	def _update_send_gui(self, gui: sg.Element, key: str, row: int, col: int) -> None:
+		data: send_data_node = self._send_mng._send_data_list[row]
+		# GUIから値を取得
+		gui_value = gui.Get()
+		# GUI部品に値を設定、解析した結果をbytesとして受け取る
+		data.set_gui_value(self._window, key, row, col, gui_value)
 
-	def _update_sendhex_gui(self, gui: sg.Element, def_data_list, bytes_list: List[bytes], key: str, row: int, gui_id: int) -> None:
+	def _update_send_gui_(self, gui: sg.Element, def_data_list, bytes_list: List[bytes], key: str, row: int, gui_id: int) -> None:
 		"""
 		送信HEXデータGUIの入力値チェック
 		"""
