@@ -455,6 +455,14 @@ class gui_manager:
 					if msg.notify == thread.ThreadNotify.AUTORESP_UPDATE_FIN:
 						# データ更新でボタン有効化
 						self._gui_hdl_autoresp_update_btn.Update(text="Update", disabled=False)
+					elif msg.notify == thread.ThreadNotify.DISCONNECTED:
+						# GUIスレッドに切断を通知
+						# self_notify.put(True)
+						# スレッドセーフらしい
+						self._window.write_event_value("_swe_disconnected", "")
+					elif msg.notify == thread.ThreadNotify.COMMIT_TX:
+						# 送信データをログ出力
+						self.comm_hdle_log_output("TX", msg.data.hex().upper(), msg.id, timestamp)
 				if not serial_notify.empty():
 					# queueからデータ取得
 					notify, data, autoresp_name, timestamp = serial_notify.get_nowait()
@@ -474,29 +482,21 @@ class gui_manager:
 					elif notify == serial_mng.ThreadNotify.COMMIT_TX:
 						# 送信データをログ出力
 						self.comm_hdle_log_output("TX", data.hex().upper(), autoresp_name, timestamp)
-					elif notify == serial_mng.ThreadNotify.DISCONNECTED:
-						# GUIスレッドに切断を通知
-						# self_notify.put(True)
-						# スレッドセーフらしい
-						self._window.write_event_value("_swe_disconnected", "")
-					#elif notify == serial_mng.ThreadNotify.AUTORESP_UPDATE_FIN:
-					#	# データ更新でボタン有効化
-					#	self._gui_hdl_autoresp_update_btn.Update(text="Update", disabled=False)
 					else:
 						pass
 				# GUIからの指令を待機
-				if not self_notify.empty():
-					# queueからデータ取得
-					notify, pos = self_notify.get_nowait()
-					# 通知毎処理
-					if notify == ThreadNotify.AUTOSEND_ENABLE:
-						# 自動送信有効化
-						#self._autosend_data[pos].start(pos)
-						pass
-					elif notify == ThreadNotify.AUTOSEND_DISABLE:
-						# 自動送信無効化
-						#self._autosend_data[pos].end(pos)
-						pass
+				#if not self_notify.empty():
+				#	# queueからデータ取得
+				#	notify, pos = self_notify.get_nowait()
+				#	# 通知毎処理
+				#	if notify == ThreadNotify.AUTOSEND_ENABLE:
+				#		# 自動送信有効化
+				#		#self._autosend_data[pos].start(pos)
+				#		pass
+				#	elif notify == ThreadNotify.AUTOSEND_DISABLE:
+				#		# 自動送信無効化
+				#		#self._autosend_data[pos].end(pos)
+				#		pass
 				# 一定時間受信が無ければ送信バッファをコミット
 				if (timestamp_curr - timestamp_rx) > rx_commit_interval:
 					if self.log_str != "":

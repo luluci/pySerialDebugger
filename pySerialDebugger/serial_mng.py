@@ -204,9 +204,9 @@ class serial_manager:
 				if as_result.is_send():
 					# 自動応答送信データが有効なときだけ送信実行
 					data = as_result.send_ref
-					if data.size > 0:
-						notify_msg = [ThreadNotify.COMMIT_TX, data.data_bytes, data.id, self._time_stamp_rx]
-						send_notify.put(notify_msg, block=True, timeout=timeout)
+					thread.messenger.notify_hdlr_send(data.id, data.data_bytes)
+					#notify_msg = [ThreadNotify.COMMIT_TX, data.data_bytes, data.id, self._time_stamp_rx]
+					#send_notify.put(notify_msg, block=True, timeout=timeout)
 				# 前回受信時間
 				self._time_stamp_rx_prev = self._time_stamp_rx
 			else:
@@ -216,9 +216,9 @@ class serial_manager:
 				if as_result.is_send():
 					# 自動応答送信データが有効なときだけ送信実行
 					data = as_result.send_ref
-					if data.size > 0:
-						notify_msg = [ThreadNotify.COMMIT_TX, data.data_bytes, data.id, self._time_stamp]
-						send_notify.put(notify_msg, block=True, timeout=timeout)
+					thread.messenger.notify_hdlr_send(data.id, data.data_bytes)
+					#notify_msg = [ThreadNotify.COMMIT_TX, data.data_bytes, data.id, self._time_stamp]
+					#send_notify.put(notify_msg, block=True, timeout=timeout)
 			# GUIからの通知チェック
 			if thread.messenger.has_notify_serial():
 				# 前回シリアル受信から一定時間内は受信中とみなし送信を抑制する
@@ -231,8 +231,7 @@ class serial_manager:
 						self._serial.write(msg.data)
 						self._serial.flush()
 						# 送信実施を通知
-						notify_msg = [ThreadNotify.COMMIT_TX, msg.data, msg.id, curr_timestamp]
-						send_notify.put(notify_msg, block=True, timeout=timeout)
+						thread.messenger.notify_hdlr_send(msg.id, msg.data)
 					if msg.notify == thread.ThreadNotify.AUTORESP_UPDATE:
 						# コールバック関数で更新を実施
 						msg.cb()
@@ -248,8 +247,7 @@ class serial_manager:
 		# exit通知クリア
 		thread.messenger.clear_exit_serial()
 		# 処理を終了することを通知
-		notify_msg = [ThreadNotify.DISCONNECTED, None, None, None]
-		send_notify.put(notify_msg, block=True, timeout=timeout)
+		thread.messenger.notify_hdlr_autoresp_disconnected()
 		print("Exit: connect()")
 
 	def _debug_serial_read_init(self) -> None:

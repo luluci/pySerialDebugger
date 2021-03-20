@@ -26,9 +26,22 @@ class serial_msg:
 
 	def __init__(self) -> None:
 		self.notify: ThreadNotify = None
+		self.id: str = None
+		self.data: bytes = None
 
 	def autoresp_updated(self):
 		self.notify = ThreadNotify.AUTORESP_UPDATE_FIN
+
+	def autoresp_disconnected(self):
+		self.notify = ThreadNotify.DISCONNECTED
+
+	def send(self, id: str, data: bytes):
+		"""
+		手動送信実施完了通知
+		"""
+		self.notify = ThreadNotify.COMMIT_TX
+		self.id = id
+		self.data = data
 
 class gui_msg:
 	"""
@@ -160,6 +173,20 @@ class msg_manager:
 		# メッセージ作成
 		new_msg = serial_msg()
 		new_msg.autoresp_updated()
+		# メッセージ送信
+		self.q_serial2hdlr_msg.put(new_msg, block=True, timeout=None)
+
+	def notify_hdlr_autoresp_disconnected(self):
+		# メッセージ作成
+		new_msg = serial_msg()
+		new_msg.autoresp_disconnected()
+		# メッセージ送信
+		self.q_serial2hdlr_msg.put(new_msg, block=True, timeout=None)
+
+	def notify_hdlr_send(self, id: str, data: bytes):
+		# メッセージ作成
+		new_msg = serial_msg()
+		new_msg.send(id, data)
 		# メッセージ送信
 		self.q_serial2hdlr_msg.put(new_msg, block=True, timeout=None)
 
