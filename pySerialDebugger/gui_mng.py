@@ -48,11 +48,6 @@ class gui_manager:
 		self._serial = serial_mng.serial_manager()
 		# Window Info
 		self._window: sg.Window = None
-		self._header_font_family = 'BIZ UDゴシック'
-		self._header_font = (self._header_font_family, 11)
-		self._data_font_family = 'Consolas'
-		self._gui_font = (self._data_font_family, 11)
-		self._log_font = (self._data_font_family, 10)
 		self._init_com()
 		self._init_window()
 		self._init_event()
@@ -109,6 +104,7 @@ class gui_manager:
 		layout_serial_send = [
 			self._layout_send_caption,
 			self._layout_send_head,
+			[sg.HorizontalSeparator(color="#404040")],
 			*self._layout_send_data
 		]
 		layout_serial_send_option = [
@@ -128,6 +124,7 @@ class gui_manager:
 		layout_serial_autosend = [
 			self._layout_autosend_caption,
 			self._layout_autosend_head,
+			[sg.HorizontalSeparator(color="#404040")],
 			*self._layout_autosend_data
 		]
 		layout_serial_autosend_column = [
@@ -138,6 +135,7 @@ class gui_manager:
 		layout_serial_auto_resp = [
 			self._layout_autoresp_caption,
 			self._layout_autoresp_head,
+			[sg.HorizontalSeparator(color="#404040")],
 			*self._layout_autoresp_data
 		]
 		layout_serial_auto_resp_column = [
@@ -560,28 +558,46 @@ class gui_manager:
 
 	def _gui_param_init(self) -> None:
 		# GUIパーツ定義
+		self._header_font_family = 'Yu Gothic UI'
+		self._header_font = (self._header_font_family, 11)
+		self._data_font_family = 'Consolas'
+		self._gui_font = (self._data_font_family, 11)
+		self._log_font = (self._data_font_family, 10)
 		# フォント定義
-		self._font_caption = (self._header_font_family, 10)
-		self._font_header = (self._data_font_family, 10)
-		self._font_btn_txt = (self._data_font_family, 11)
-		self._font_btn = (self._data_font_family, 9)
+		self._font_enable_header = (self._data_font_family, 9)
 		self._font_enable = (self._data_font_family, 9)
-		self._font_name = (self._header_font_family, 10)
-		self._font_rx = (self._data_font_family, 10)
-		self._font_tx = (self._data_font_family, 9)
-		# サイズ定義
+		self._font_btn_header = (self._data_font_family, 9)
+		self._font_btn = (self._data_font_family, 9)
+		self._font_id_header = (self._header_font_family, 10)
+		self._font_id = (self._header_font_family, 10)
+		self._font_data_header = (self._header_font_family, 9)
+		self._font_data = (self._data_font_family, 9)
+
+		### サイズ定義
 		self._size_caption = (23, 1)
 		self._size_btn_txt = (5, 1)
 		self._size_btn = (5, 1)
 		self._size_enable = (5, 1)
-		self._size_name = (20, 1)
-		self._size_rx = (20, 1)
-		self._size_tx = (6, 1)
+		self._size_id = (20, 1)
+		self._size_data = (6, 1)
+		# 自動応答
+		self._size_ar_id_header = (20, 1)
+		self._size_ar_id = (20, 1)
+		# 手動送信
+		self._size_send_btn = (5, 1)
+		self._size_send_id_header = (21, 1)
+		self._size_send_id = (20, 1)
+		self._size_send_data = (6, 1)
+		# 自動送信
 		self._size_as_caption = (13, 1)
-		self._size_as_btn = (10,1)
-		self._size_as = (17,1)
+		self._size_as_btn_header = (10, 1)
+		self._size_as_btn = (10, 1)
+		self._size_as_name_header = (20, 1)
+		self._size_as_name = (20, 1)
+		self._size_as_data_header = (40, 1)
+		self._size_as_data = (15, 1)
 		# padding
-		self._pad_tx = ((0, 0), (0, 0))
+		self._pad_data = ((0, 0), (0, 0))
 		# text_color
 		#self._active_box = sg.theme_input_background_color()
 		self._active_box = '#F0F000'
@@ -591,10 +607,10 @@ class gui_manager:
 		"""
 		Input GUI 構築クロージャ
 		"""
-		size = self._size_tx
-		font = self._font_tx
+		size = self._size_data
+		font = self._font_data
 		disabled = True
-		pad = self._pad_tx
+		pad = self._pad_data
 		disabled_readonly_background_color = sg.theme_background_color()
 		disabled_readonly_text_color = sg.theme_element_text_color()
 		def build(data:str):
@@ -616,22 +632,22 @@ class gui_manager:
 		# 自動応答enableが重複したときは自動でdisableに変更する。
 		# このあとにGUI構築すること
 		self._autoresp_mng = autoresp_mng(self._autoresp_data, self._autosend_mng)
-		autoresp_data.set_gui_info(self._size_tx, self._pad_tx, self._font_tx)
+		autoresp_data.set_gui_info(self._size_data, self._pad_data, self._font_data)
 		# 受信解析マネージャをシリアルマネージャに渡す
 		self._serial.autoresp(self._autoresp_mng)
 		# GUI構築
 		input = self._gui_build_input()
 		# Layout: Caption
 		self._layout_autoresp_caption = []
-		self._layout_autoresp_caption.append(sg.Text(self._autoresp_caption[0], size=self._size_caption, font=self._font_name))
-		#self._layout_autoresp_caption.append(sg.Text(self._autoresp_caption[1], size=self._size_caption, font=self._font_name))
-		#self._layout_autoresp_caption.append(sg.Text(self._autoresp_caption[2], size=self._size_caption, font=self._font_name))
+		self._layout_autoresp_caption.append(sg.Text(self._autoresp_caption[0], size=self._size_caption, font=self._font_id))
+		#self._layout_autoresp_caption.append(sg.Text(self._autoresp_caption[1], size=self._size_caption, font=self._font_id))
+		#self._layout_autoresp_caption.append(sg.Text(self._autoresp_caption[2], size=self._size_caption, font=self._font_id))
 		# Layout: Header
 		self._layout_autoresp_head = []
-		self._layout_autoresp_head.append(sg.Text(self._autoresp_head[autoresp_list.ENABLE], size=self._size_enable, font=self._font_enable))
-		self._layout_autoresp_head.append(sg.Text(self._autoresp_head[autoresp_list.ID], size=self._size_name, font=self._font_header))
+		self._layout_autoresp_head.append(sg.Text(self._autoresp_head[autoresp_list.ENABLE], size=self._size_enable, font=self._font_enable_header))
+		self._layout_autoresp_head.append(sg.Text(self._autoresp_head[autoresp_list.ID], size=self._size_ar_id_header, font=self._font_id_header))
+		self._layout_autoresp_head.append(sg.Text(self._autoresp_head[autoresp_list.SENDDATA_ID], size=self._size_ar_id_header, font=self._font_id_header))
 		self._layout_autoresp_head.extend( [ input(data) for data in self._autoresp_head[autoresp_list.DATA] ] )
-		self._layout_autoresp_head.append(sg.Text(self._autoresp_head[autoresp_list.SENDDATA_ID], size=self._size_rx, font=self._font_header))
 		# Layout: Data
 		self._layout_autoresp_data = []
 		for resp in self._autoresp_data:
@@ -642,11 +658,11 @@ class gui_manager:
 			# Add AutoResponse_Enable
 			parts.append(sg.Checkbox("", default=resp[autoresp_list.ENABLE], key=("autoresp_enable",row, None), size=(2, 1), font=self._font_enable, enable_events=True))
 			# Add Name
-			parts.append(sg.Text(resp[autoresp_list.ID], size=self._size_name, font=self._font_name))
+			parts.append(sg.Text(resp[autoresp_list.ID], size=self._size_ar_id, font=self._font_id))
+			# Add SendDataID
+			parts.append(sg.Text(resp[autoresp_list.SENDDATA_ID], size=self._size_ar_id, font=self._font_id))
 			# Add RecvData
 			parts.extend(self._init_gui_rx("resp", row, resp))
-			# Add SendDataID
-			parts.append(sg.Text(resp[autoresp_list.SENDDATA_ID], size=self._size_name, font=self._font_name))
 			# GUI更新
 			self._layout_autoresp_data.append(parts)
 
@@ -672,23 +688,23 @@ class gui_manager:
 		# 定義解析
 		#self._send_settings_construct()
 		self._send_mng = send_mng(self._send_data)
-		send_data.set_gui_info(self._size_tx, self._pad_tx, self._font_tx)
+		send_data.set_gui_info(self._size_send_data, self._pad_data, self._font_data)
 
 		# Make Caption
 		self._layout_send_caption = []
-		self._layout_send_caption.append(sg.Text("", size=self._size_btn_txt, font=self._font_btn_txt))
-		self._layout_send_caption.append(sg.Text(self._send_caption[0], size=self._size_name, font=self._font_name))
-		self._layout_send_caption.append(sg.Text(self._send_caption[2], size=self._size_name, font=self._font_name)) 
+		self._layout_send_caption.append(sg.Text("", size=self._size_btn_txt, font=self._font_btn_header))
+		self._layout_send_caption.append(sg.Text(self._send_caption[0], size=self._size_id, font=self._font_id))
+		self._layout_send_caption.append(sg.Text(self._send_caption[2], size=self._size_id, font=self._font_id)) 
 		# Make Header
 		self._layout_send_head = []
-		self._layout_send_head.append(sg.Text("", size=self._size_btn_txt, font=self._font_btn_txt))
-		self._layout_send_head.append(sg.Text(self._send_head[send_data_list.ID], size=self._size_name, font=self._font_name))
+		self._layout_send_head.append(sg.Text("", size=self._size_btn_txt, font=self._font_btn_header))
+		self._layout_send_head.append(sg.Text(self._send_head[send_data_list.ID], size=self._size_send_id_header, font=self._font_id_header))
 		# ヘッダ定義がデータ最大に足りなかったら穴埋めする
 		# Header GUI作成クロージャ
 		def header_gui_closure():
 			# 定義
 			def get(text:str):
-				return sg.Input(text, size=self._size_tx, font=self._font_tx, disabled=True, pad=self._pad_tx, disabled_readonly_background_color=sg.theme_background_color(), disabled_readonly_text_color=sg.theme_element_text_color())
+				return sg.Input(text, size=self._size_send_data, font=self._font_data, pad=self._pad_data, disabled=True, disabled_readonly_background_color=sg.theme_background_color(), disabled_readonly_text_color=sg.theme_element_text_color())
 			# return
 			return get
 		#
@@ -714,9 +730,9 @@ class gui_manager:
 			#idx = len(self._layout_send_data)
 			parts = []
 			# Add Button col
-			parts.append(sg.Button("Send", size=self._size_btn, font=self._font_btn, key=("btn_send",row, None)))
+			parts.append(sg.Button("Send", size=self._size_send_btn, font=self._font_btn, key=("btn_send",row, None)))
 			# Add Name col
-			parts.append(sg.Text(data.id, size=self._size_name, font=self._font_name))
+			parts.append(sg.Text(data.id, size=self._size_send_id, font=self._font_id))
 			# Add resp data col
 			parts.extend(data.get_gui("send", row))
 			# GUI更新
@@ -731,7 +747,7 @@ class gui_manager:
 		# 定義解析
 		#
 		self._autosend_mng = autosend_mng(self._autosend_data, self._send_mng)
-		autosend_node.set_gui_info(self._size_tx, self._pad_tx, self._font_tx)
+		autosend_node.set_gui_info(self._size_as_data, self._pad_data, self._font_data)
 		# 自動送信マネージャに手動送信用コールバックを登録
 		self._autosend_mng.set_cb_btn_activate(self._autosend_btn_activate)
 		self._autosend_mng.set_cb_btn_inactivate(self._autosend_btn_inactivate)
@@ -743,13 +759,13 @@ class gui_manager:
 
 		# Layout: Caption
 		self._layout_autosend_caption = []
-		self._layout_autosend_caption.append(sg.Text(self._autosend_caption[0], size=self._size_as_caption, font=self._font_name))
-		self._layout_autosend_caption.append(sg.Text(self._autosend_caption[1], size=(100,1), font=self._font_name)) 
+		self._layout_autosend_caption.append(sg.Text(self._autosend_caption[0], size=self._size_as_caption, font=self._font_id))
+		self._layout_autosend_caption.append(sg.Text(self._autosend_caption[1], size=(100,1), font=self._font_id)) 
 		# Layout: Header
 		self._layout_autosend_head = []
-		self._layout_autosend_head.append(sg.Text(self._autosend_head[autosend_list.ENABLE], size=self._size_enable, font=self._font_enable))
-		self._layout_autosend_head.append(sg.Text(self._autosend_head[autosend_list.ID], size=self._size_name, font=self._font_header))
-		self._layout_autosend_head.append(sg.Text(self._autosend_head[autosend_list.DATA], size=self._size_rx, font=self._font_header))
+		self._layout_autosend_head.append(sg.Text(self._autosend_head[autosend_list.ENABLE], size=self._size_as_btn_header, font=self._font_btn_header))
+		self._layout_autosend_head.append(sg.Text(self._autosend_head[autosend_list.ID], size=self._size_as_name_header, font=self._font_id_header))
+		self._layout_autosend_head.append(sg.Text(self._autosend_head[autosend_list.DATA], size=self._size_as_data_header, font=self._font_id_header))
 		# Layout: Values
 		self._layout_autosend_data = []
 		for row, data in enumerate(self._autosend_mng._data_list):
@@ -761,7 +777,7 @@ class gui_manager:
 			# Add Button col
 			parts.append(sg.Button("Start", size=self._size_as_btn, font=self._font_btn, key=("btn_autosend",row, None)))
 			# Add Name col
-			parts.append(sg.Text(data.id, size=self._size_name, font=self._font_name))
+			parts.append(sg.Text(data.id, size=self._size_as_name, font=self._font_id))
 			# Add Settings col
 			parts.extend(data.get_gui("autosend", row))
 			# GUI更新

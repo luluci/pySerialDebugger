@@ -20,7 +20,7 @@ def send_settings() -> None:
 		"[送信データ設定]", "", "送信データ",
 	]
 	head = [
-			"[ID]",				["ST", "XX", "XX", "XX", "XX", "YY"]
+			"[送信データID]",	["ST", "XX", "XX", "XX", "XX", "YY"]
 	]
 	data = [
 			# 送信設定			# 手動送信データ定義					# FCC定義(idx=0開始)
@@ -57,7 +57,7 @@ def autosend_settings() -> None:
 		"[AutoSend]", "自動送信パターン",
 	]
 	head = [
-			"[Act]",	"[ID]", 				"[SendInfo]",
+            "[Act]",	"[自動送信データID]", 	"[SendInfo/送信データID/wait時間]",
 	]
 	data = [
 		[	False,		"TestAutoSend1",		[send("TestSend_A"), wait(50), send("TestSend_B"), wait(50)]],
@@ -82,7 +82,7 @@ def auto_response_settings():
 		"[自動応答データ設定]"
 	]
 	head = [
-			"[Act]",	"[ID]", 		["ST", "XX", "XX", "XX", "XX", "XX", ],					"[SendID]",
+			"[Act]",	"[受信解析ID]", 	["ST", "XX", "XX", "XX", "XX", "XX", ],			"[自動送信データID]",
 	]
 
 	if True:
