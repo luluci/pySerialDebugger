@@ -54,6 +54,8 @@ class gui_manager:
 		self._gui_conn_state = self.DISCONNECTED
 		# sendオプション更新
 		self._sendopt_update()
+		# 
+		self._window_closing = False
 
 	def __del__(self) -> None:
 		self.close()
@@ -160,8 +162,11 @@ class gui_manager:
 			layout_serial_log_caption,
 			layout_serial_log_output,
 		]
+		layout_exit = [
+			sg.Button("ツールを終了", key="btn_exit_tool", enable_events=True, size=(20,1))
+		]
 		layout = [
-			[*leyout_serial_connect, sg.Frame("Status:", [layout_serial_status])],
+			[*leyout_serial_connect, sg.Frame("Status:", [layout_serial_status]), *layout_exit],
 			[sg.Frame("Serial Settings:", [layout_serial_settings])],
 			#[sg.Frame("Auto Response Settings:", layout_serial_auto_resp_column)],
 			#[sg.Frame("Manual Send Settings:", layout_serial_send_column)],
@@ -172,7 +177,7 @@ class gui_manager:
 			]])],
 			[sg.Frame("Log:", layout_serial_log)],
 		]
-		self._window = sg.Window("pySerialDebugger", layout, finalize=True)
+		self._window = sg.Window("pySerialDebugger", layout, finalize=True, disable_close=True)
 
 	def _init_event(self) -> None:
 		"""
@@ -307,6 +312,10 @@ class gui_manager:
 		self._conn_status_hdl.Update(value="---")
 		# 次状態へ
 		self._gui_conn_state = self.DISCONNECTED
+		# ツール終了処理中なら
+		if self._window_closing:
+			# シリアル通信スレッドが停止したので管理スレッドに終了通知
+			thread.messenger.notify_exit_hdlr()
 
 
 	def _hdl_autoresp_enable(self, values, row:int, col:int):
@@ -420,13 +429,25 @@ class gui_manager:
 			elif event in self._events:
 				self._events[event](values)
 			elif event in (None, 'Quit', sg.WIN_CLOSED):
-				# 自動送信処理:シリアル通信側で停止(何もしない)
-				# 各スレッドに終了通知
-				thread.messenger.notify_exit_hdlr()
-				thread.messenger.notify_exit_serial()
-				# queueを空にしておく
-				thread.messenger.clear_notify_serial2hdrl()
-				thread.messenger.clear_notify_serial()
+				pass
+			elif event == "btn_exit_tool":
+				result = sg.PopupOKCancel("ツールを終了します。\r\nよろしいですか？")
+				if result == "OK":
+					# ツール終了処理開始
+					self._window_closing = True
+					# シリアル通信スレッド -> 管理スレッド の順に停止させる
+					if self._future_serial is not None:
+						# シリアル通信スレッド稼働中なら終了通知
+						thread.messenger.notify_exit_serial()
+					else:
+						# シリアル通信スレッド非稼働中なら管理スレッドに終了通知
+						thread.messenger.notify_exit_hdlr()
+					# queueを空にしておく
+					#thread.messenger.clear_notify_serial2hdrl()
+					#thread.messenger.clear_notify_serial()
+					#break
+			elif event == "_swe_hdrl_exit":
+				# スレッドがすべて停止したのでメインスレッドも終了する
 				break
 		print("Exit: wnd_proc()")
 
@@ -494,6 +515,8 @@ class gui_manager:
 		except:
 			import traceback
 			traceback.print_exc()
+		# スレッド終了をメインスレッドに通知
+		self._window.write_event_value("_swe_hdrl_exit", "")
 
 	def comm_hdle_log_output(self, rxtx:str, data:str, detail:str, timestamp:int):
 		# タイムスタンプ整形
