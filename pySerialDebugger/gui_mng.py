@@ -177,13 +177,8 @@ class gui_manager:
 			]])],
 			[sg.Frame("Log:", layout_serial_log)],
 		]
-		self._window = sg.Window("pySerialDebugger", layout, finalize=True)
-		self._window.TKroot.protocol("WM_DELETE_WINDOW", self._on_close)
+		self._window = sg.Window("pySerialDebugger", layout, finalize=True, enable_close_attempted_event=True)
 
-	def _on_close(self):
-		self._window.write_event_value("btn_exit_tool", "")
-		#print("on_close")
-		#return True
 
 	def _init_event(self) -> None:
 		"""
@@ -436,7 +431,7 @@ class gui_manager:
 				self._events[event](values)
 			elif event in (None, 'Quit', sg.WIN_CLOSED):
 				pass
-			elif event == "btn_exit_tool":
+			elif event == sg.WINDOW_CLOSE_ATTEMPTED_EVENT:
 				#result = sg.PopupOKCancel("ツールを終了します。\r\nよろしいですか？")
 				#if result == "OK":
 				# ツール終了処理開始
@@ -448,10 +443,6 @@ class gui_manager:
 				else:
 					# シリアル通信スレッド非稼働中なら管理スレッドに終了通知
 					thread.messenger.notify_exit_hdlr()
-				# queueを空にしておく
-				#thread.messenger.clear_notify_serial2hdrl()
-				#thread.messenger.clear_notify_serial()
-				#break
 			elif event == "_swe_hdrl_exit":
 				# スレッドがすべて停止したのでメインスレッドも終了する
 				break
@@ -476,7 +467,6 @@ class gui_manager:
 						self._gui_hdl_autoresp_update_btn.Update(text="Update", disabled=False)
 					elif msg.notify == thread.ThreadNotify.DISCONNECTED:
 						# GUIスレッドに切断を通知
-						# self_notify.put(True)
 						# スレッドセーフらしい
 						self._window.write_event_value("_swe_disconnected", "")
 					elif msg.notify == thread.ThreadNotify.RECV_ANALYZE:

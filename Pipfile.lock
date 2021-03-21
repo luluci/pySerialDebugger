@@ -26,11 +26,11 @@
         },
         "pysimplegui": {
             "hashes": [
-                "sha256:641431980a020159e4b1b4a425202560abf616b4de523d9b7476ff228b69b694",
-                "sha256:7132066ac7e365718e3025daa578cd3b229507164c6d80829405c9293adc6935"
+                "sha256:c5764fa58f4c9a9b25b36fb0133fc8893a2e2c8a9da1f96a268378eb54e42beb",
+                "sha256:ff1ffa7fb73a5665b299426facc2522197977732fb69d27becf9fca3c4d62ed3"
             ],
             "index": "pypi",
-            "version": "==4.32.1"
+            "version": "==4.37.0"
         }
     },
     "develop": {}
