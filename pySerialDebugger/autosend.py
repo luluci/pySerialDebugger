@@ -1,6 +1,7 @@
 
 import PySimpleGUI as sg
 from typing import Any, Callable, List, Dict
+import time
 
 from .send_node import send_mng, send_data_node
 
@@ -136,12 +137,14 @@ class autosend_result:
 	def __init__(self) -> None:
 		# データ
 		self.send_ref: send_data_node = None
+		self.timestamp: int = None
 		# フラグ
 		self._send_data: bool = False
 		self._wait_time: bool = False
 
-	def set_send(self, node:send_data_node):
+	def set_send(self, node:send_data_node, timestamp:int):
 		self.send_ref = node
+		self.timestamp = timestamp
 		self._send_data = True
 
 	def set_wait(self):
@@ -297,15 +300,18 @@ class autosend_mng:
 			self._run_impl_exit(node)
 
 	def _run_impl_send(self, node: autosend_node, data: autosend_data, timestamp: int) -> None:
-		# タイムスタンプ更新
-		self._timestamp = timestamp
 		if data._send_ref.size > 0:
+			# タイムスタンプ更新
+			self._timestamp = time.perf_counter_ns()
 			# 送信実行
 			self._send_cb(data._send_ref.data_bytes)
 			# 次のシーケンスへ遷移
 			self._next(node)
 			# 結果作成
-			self._result.set_send(data._send_ref)
+			self._result.set_send(data._send_ref, self._timestamp)
+		else:
+			# タイムスタンプ更新
+			self._timestamp = timestamp
 
 	def _run_impl_wait(self, node: autosend_node, data: autosend_data, timestamp: int) -> None:
 		if self._timestamp == 0:

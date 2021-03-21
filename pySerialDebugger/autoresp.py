@@ -144,10 +144,14 @@ class analyze_result:
 		# tail参照
 		self.tail_node = None
 		# 解析フラグ
+		self._notify = False
 		self._autoresp_send = False
 		self._rx_buf_commit_prev = False
 		self._rx_buf_commit = False
 		self._rx_buf_push = False
+		# 通知データ
+		self._timestamp_rx: int = None
+		self._timestamp_rx_prev: int = None
 
 	"""
 	状態設定メソッド
@@ -175,17 +179,25 @@ class analyze_result:
 		self._autoresp_send = True
 		self._rx_buf_push = True
 		self._rx_buf_commit = True
+		self._notify = True
 
 	def set_analyze_failed(self):
 		#
 		self._rx_buf_push = True
+		self._notify = True
 
 	def set_analyzing(self):
 		self._rx_buf_push = True
+		self._notify = True
 
 	def set_analyze_next_start(self):
 		self._rx_buf_commit_prev = True
 		self._rx_buf_push = True
+		self._notify = True
+
+	def set_timestamp(self, rx, rx_prev):
+		self._timestamp_rx = rx
+		self._timestamp_rx_prev = rx_prev
 
 	"""
 	操作要求取得メソッド
@@ -203,6 +215,8 @@ class analyze_result:
 	def buff_commit(self) -> bool:
 		return self._rx_buf_commit
 
+	def has_notify(self) -> bool:
+		return self._notify
 
 
 class autoresp_mng:

@@ -1,12 +1,15 @@
 import enum
 import queue
 from typing import Callable
+from . import autoresp
+from pySerialDebugger.autosend import autosend_result
 
 class ThreadNotify(enum.Enum):
 	"""
 	スレッド間通信メッセージ
 	"""
 	# GUIへの通知
+	RECV_ANALYZE = enum.auto()				# 受信解析結果通知
 	COMMIT_RX = enum.auto()					# 受信バッファ出力
 	PUSH_RX = enum.auto()					# 受信データをバッファに追加
 	COMMIT_TX = enum.auto()					# 自動応答データを出力
@@ -28,6 +31,9 @@ class serial_msg:
 		self.notify: ThreadNotify = None
 		self.id: str = None
 		self.data: bytes = None
+		self.timestamp: int = None
+		self.result: autoresp.analyze_result = None
+		self.as_result: autosend_result = None
 
 	def autoresp_updated(self):
 		self.notify = ThreadNotify.AUTORESP_UPDATE_FIN
@@ -35,13 +41,17 @@ class serial_msg:
 	def autoresp_disconnected(self):
 		self.notify = ThreadNotify.DISCONNECTED
 
-	def send(self, id: str, data: bytes):
+	def send(self, result: autosend_result):
 		"""
 		手動送信実施完了通知
 		"""
 		self.notify = ThreadNotify.COMMIT_TX
-		self.id = id
-		self.data = data
+		self.as_result = result
+
+	def recv_analyze(self, result: autoresp.analyze_result):
+		self.notify = ThreadNotify.RECV_ANALYZE
+		self.result = result
+
 
 class gui_msg:
 	"""
@@ -183,14 +193,19 @@ class msg_manager:
 		# メッセージ送信
 		self.q_serial2hdlr_msg.put(new_msg, block=True, timeout=None)
 
-	def notify_hdlr_send(self, id: str, data: bytes):
+	def notify_hdlr_send(self, result:autosend_result):
 		# メッセージ作成
 		new_msg = serial_msg()
-		new_msg.send(id, data)
+		new_msg.send(result)
 		# メッセージ送信
 		self.q_serial2hdlr_msg.put(new_msg, block=True, timeout=None)
 
-
+	def notify_hdlr_recv_analyze(self, result: autoresp.analyze_result):
+		# メッセージ作成
+		new_msg = serial_msg()
+		new_msg.recv_analyze(result)
+		# メッセージ送信
+		self.q_serial2hdlr_msg.put(new_msg, block=True, timeout=None)
 
 
 messenger = msg_manager()

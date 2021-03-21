@@ -137,7 +137,7 @@ class serial_manager:
 		# ナノ秒に直しておく
 		self._send_tx_delay = time * 1000
 
-	def connect(self, send_notify: queue.Queue) -> None:
+	def connect(self) -> None:
 		"""
 		Serial open and communicate.
 		無限ループで通信を続けるのでスレッド化して実施する。
@@ -163,8 +163,7 @@ class serial_manager:
 					import traceback
 					traceback.print_exc()
 					# 処理を終了することを通知
-					notify_msg = [ThreadNotify.DISCONNECTED, None, None, None]
-					send_notify.put(notify_msg, block=True, timeout=timeout)
+					thread.messenger.notify_hdlr_autoresp_disconnected()
 					print("Cannot open COM port!")
 					return
 			# 念のためシリアル通信受信バッファを空にする
@@ -191,22 +190,12 @@ class serial_manager:
 				# 受信解析結果から送信要求があればこの中で実施される
 				as_result = self._autosend_mng.run(0, self._time_stamp_rx)
 				# 解析結果処理
-				# GUI通知を実行
-				if result.prev_buff_commit():
-					notify_msg = [ThreadNotify.COMMIT_RX, None, "", self._time_stamp_rx_prev]
-					send_notify.put(notify_msg, block=True, timeout=timeout)
-				if result.new_data_push():
-					notify_msg = [ThreadNotify.PUSH_RX, recv, result.id, self._time_stamp_rx]
-					send_notify.put(notify_msg, block=True, timeout=timeout)
-				if result.buff_commit():
-					notify_msg = [ThreadNotify.COMMIT_RX, None, result.id, self._time_stamp_rx]
-					send_notify.put(notify_msg, block=True, timeout=timeout)
+				if result.has_notify():
+					result.set_timestamp(self._time_stamp_rx, self._time_stamp_rx_prev)
+					thread.messenger.notify_hdlr_recv_analyze(result)
 				if as_result.is_send():
 					# 自動応答送信データが有効なときだけ送信実行
-					data = as_result.send_ref
-					thread.messenger.notify_hdlr_send(data.id, data.data_bytes)
-					#notify_msg = [ThreadNotify.COMMIT_TX, data.data_bytes, data.id, self._time_stamp_rx]
-					#send_notify.put(notify_msg, block=True, timeout=timeout)
+					thread.messenger.notify_hdlr_send(as_result)
 				# 前回受信時間
 				self._time_stamp_rx_prev = self._time_stamp_rx
 			else:
@@ -215,10 +204,7 @@ class serial_manager:
 				as_result = self._autosend_mng.run(0, self._time_stamp)
 				if as_result.is_send():
 					# 自動応答送信データが有効なときだけ送信実行
-					data = as_result.send_ref
-					thread.messenger.notify_hdlr_send(data.id, data.data_bytes)
-					#notify_msg = [ThreadNotify.COMMIT_TX, data.data_bytes, data.id, self._time_stamp]
-					#send_notify.put(notify_msg, block=True, timeout=timeout)
+					thread.messenger.notify_hdlr_send(as_result)
 			# GUIからの通知チェック
 			if thread.messenger.has_notify_serial():
 				# 前回シリアル受信から一定時間内は受信中とみなし送信を抑制する
@@ -231,7 +217,7 @@ class serial_manager:
 						self._serial.write(msg.data)
 						self._serial.flush()
 						# 送信実施を通知
-						thread.messenger.notify_hdlr_send(msg.id, msg.data)
+						thread.messenger.notify_hdlr_send(msg.id, msg.data, self._time_stamp_rx)
 					if msg.notify == thread.ThreadNotify.AUTORESP_UPDATE:
 						# コールバック関数で更新を実施
 						msg.cb()

@@ -10,7 +10,7 @@ import enum
 from . import serial_mng
 from .send_node import send_data, send_data_node, send_mng, send_data_list
 from .autosend import autosend_data, autosend_mng, autosend_node, autosend_list
-from .autoresp import autoresp_data, autoresp_list, autoresp_mng
+from .autoresp import analyze_result, autoresp_data, autoresp_list, autoresp_mng
 from . import user_settings
 from . import thread
 
@@ -244,7 +244,7 @@ class gui_manager:
 			if self._serial_open():
 				# オープンに成功したら
 				# スレッドにて通信制御を開始
-				self._future_serial = self._executer.submit(self._serial.connect, self._notify_from_serial)
+				self._future_serial = self._executer.submit(self._serial.connect)
 				# GUI更新
 				self._conn_btn_hdl.Update(text="Disconnect")
 				self._conn_status_hdl.Update(value=self._get_com_info())
@@ -360,14 +360,12 @@ class gui_manager:
 				# 自動送信を無効にする
 				# とりあえず直接操作。バグになるようならスレッド間メッセージで通知する
 				self._autosend_mng.end(row)
-				#self._comm_hdle_notify.put([ThreadNotify.AUTOSEND_DISABLE, row])
 				# GUI更新
 				self._window[("btn_autosend", row, col)].Update(text="Start")
 			else:
 				# 自動送信無効のとき
 				# 自動送信を有効にする
 				self._autosend_mng.start(row)
-				#self._comm_hdle_notify.put([ThreadNotify.AUTOSEND_ENABLE, row])
 				# GUI更新
 				self._window[("btn_autosend", row, col)].Update(text="Sending..")
 
@@ -403,16 +401,12 @@ class gui_manager:
 		# スレッド管理
 		self._future_comm_hdle = None
 		self._future_serial = None
-		# スレッド間通信用キュー
-		self._comm_hdle_notify = queue.Queue(10)
-
-		self._notify_from_serial = queue.Queue(10)
 		# (1) Windows イベントハンドラ
 		# (2) シリアル通信
 		# (3) 全体管理(シリアル通信->送受信->GUI)
 		# の3スレッドで処理を実施する
 		self._executer = concurrent.futures.ThreadPoolExecutor(max_workers=3)
-		self._future_comm_hdle = self._executer.submit(self.comm_hdle, self._notify_from_serial, self._comm_hdle_notify)
+		self._future_comm_hdle = self._executer.submit(self.comm_hdle)
 		self.wnd_proc()
 		self._executer.shutdown()
 		self.close()
@@ -438,7 +432,7 @@ class gui_manager:
 				break
 		print("Exit: wnd_proc()")
 
-	def comm_hdle(self, serial_notify: queue.Queue, self_notify: queue.Queue):
+	def comm_hdle(self):
 		self.log_str = ""
 		self.log_pos = 0
 		timestamp_curr: int = 0
@@ -460,43 +454,33 @@ class gui_manager:
 						# self_notify.put(True)
 						# スレッドセーフらしい
 						self._window.write_event_value("_swe_disconnected", "")
+					elif msg.notify == thread.ThreadNotify.RECV_ANALYZE:
+						result = msg.result
+						if result.prev_buff_commit():
+							if self.log_str != "":
+								# ログ出力
+								self.comm_hdle_log_output("RX", self.log_str, "", result._timestamp_rx_prev)
+								# バッファクリア
+								self.log_str = ""
+						if result.new_data_push():
+							# 受信時タイムスタンプ取得
+							timestamp_rx = result._timestamp_rx
+							# ログバッファに受信データを追加
+							# ログ出力は実施しない
+							self.log_str += format(result.data, "02X")
+						if result.buff_commit():
+							if self.log_str != "":
+								# ログ出力
+								self.comm_hdle_log_output("RX", self.log_str, result.id, result._timestamp_rx)
+								# バッファクリア
+								self.log_str = ""
+						pass
 					elif msg.notify == thread.ThreadNotify.COMMIT_TX:
+						result = msg.as_result
 						# 送信データをログ出力
-						self.comm_hdle_log_output("TX", msg.data.hex().upper(), msg.id, timestamp)
-				if not serial_notify.empty():
-					# queueからデータ取得
-					notify, data, autoresp_name, timestamp = serial_notify.get_nowait()
-					# 通知に応じて処理実施
-					if notify == serial_mng.ThreadNotify.COMMIT_RX:
-						if self.log_str != "":
-							# ログ出力
-							self.comm_hdle_log_output("RX", self.log_str, autoresp_name, timestamp)
-							# バッファクリア
-							self.log_str = ""
-					elif notify == serial_mng.ThreadNotify.PUSH_RX:
-						# 受信時タイムスタンプ取得
-						timestamp_rx = timestamp_curr
-						# ログバッファに受信データを追加
-						# ログ出力は実施しない
-						self.log_str += data.hex().upper()
-					elif notify == serial_mng.ThreadNotify.COMMIT_TX:
-						# 送信データをログ出力
-						self.comm_hdle_log_output("TX", data.hex().upper(), autoresp_name, timestamp)
+						self.comm_hdle_log_output("TX", result.send_ref.data_bytes.hex().upper(), result.send_ref.id, result.timestamp)
 					else:
 						pass
-				# GUIからの指令を待機
-				#if not self_notify.empty():
-				#	# queueからデータ取得
-				#	notify, pos = self_notify.get_nowait()
-				#	# 通知毎処理
-				#	if notify == ThreadNotify.AUTOSEND_ENABLE:
-				#		# 自動送信有効化
-				#		#self._autosend_data[pos].start(pos)
-				#		pass
-				#	elif notify == ThreadNotify.AUTOSEND_DISABLE:
-				#		# 自動送信無効化
-				#		#self._autosend_data[pos].end(pos)
-				#		pass
 				# 一定時間受信が無ければ送信バッファをコミット
 				if (timestamp_curr - timestamp_rx) > rx_commit_interval:
 					if self.log_str != "":
