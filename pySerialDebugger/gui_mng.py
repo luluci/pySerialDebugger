@@ -166,7 +166,7 @@ class gui_manager:
 			sg.Button("ツールを終了", key="btn_exit_tool", enable_events=True, size=(20,1))
 		]
 		layout = [
-			[*leyout_serial_connect, sg.Frame("Status:", [layout_serial_status]), *layout_exit],
+			[*leyout_serial_connect, sg.Frame("Status:", [layout_serial_status])],
 			[sg.Frame("Serial Settings:", [layout_serial_settings])],
 			#[sg.Frame("Auto Response Settings:", layout_serial_auto_resp_column)],
 			#[sg.Frame("Manual Send Settings:", layout_serial_send_column)],
@@ -177,7 +177,13 @@ class gui_manager:
 			]])],
 			[sg.Frame("Log:", layout_serial_log)],
 		]
-		self._window = sg.Window("pySerialDebugger", layout, finalize=True, disable_close=True)
+		self._window = sg.Window("pySerialDebugger", layout, finalize=True)
+		self._window.TKroot.protocol("WM_DELETE_WINDOW", self._on_close)
+
+	def _on_close(self):
+		self._window.write_event_value("btn_exit_tool", "")
+		#print("on_close")
+		#return True
 
 	def _init_event(self) -> None:
 		"""
@@ -431,21 +437,21 @@ class gui_manager:
 			elif event in (None, 'Quit', sg.WIN_CLOSED):
 				pass
 			elif event == "btn_exit_tool":
-				result = sg.PopupOKCancel("ツールを終了します。\r\nよろしいですか？")
-				if result == "OK":
-					# ツール終了処理開始
-					self._window_closing = True
-					# シリアル通信スレッド -> 管理スレッド の順に停止させる
-					if self._future_serial is not None:
-						# シリアル通信スレッド稼働中なら終了通知
-						thread.messenger.notify_exit_serial()
-					else:
-						# シリアル通信スレッド非稼働中なら管理スレッドに終了通知
-						thread.messenger.notify_exit_hdlr()
-					# queueを空にしておく
-					#thread.messenger.clear_notify_serial2hdrl()
-					#thread.messenger.clear_notify_serial()
-					#break
+				#result = sg.PopupOKCancel("ツールを終了します。\r\nよろしいですか？")
+				#if result == "OK":
+				# ツール終了処理開始
+				self._window_closing = True
+				# シリアル通信スレッド -> 管理スレッド の順に停止させる
+				if self._future_serial is not None:
+					# シリアル通信スレッド稼働中なら終了通知
+					thread.messenger.notify_exit_serial()
+				else:
+					# シリアル通信スレッド非稼働中なら管理スレッドに終了通知
+					thread.messenger.notify_exit_hdlr()
+				# queueを空にしておく
+				#thread.messenger.clear_notify_serial2hdrl()
+				#thread.messenger.clear_notify_serial()
+				#break
 			elif event == "_swe_hdrl_exit":
 				# スレッドがすべて停止したのでメインスレッドも終了する
 				break
