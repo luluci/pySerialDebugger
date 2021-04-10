@@ -136,17 +136,20 @@ class autoresp_tail_node:
 		self.send_id: str = None
 		self.senddata_ref = None
 		# 受信データ解析
+		self.anlyz_adpt: recvdata_adapter = None
 		self.anlyz_data = None
 		self.anlyz_log = None
 
 
 
 class recvdata_adapter:
-	def __init__(self, as_mng: autosend_mng, s_mng: send_mng) -> None:
+	def __init__(self, as_mng: autosend_mng, s_mng: send_mng, tail: autoresp_tail_node) -> None:
 		# 手動送信データへの参照
 		self._send_mng: send_mng = s_mng
 		# 自動送信データへの参照
 		self._autosend_mng: autosend_mng = as_mng
+		# 対応する自動応答データの末尾ノードへの参照
+		self._tail = tail
 
 	def senddata_update(self, send_id:str, pos:int, value:int):
 		if send_id in self._send_mng._send_data_dict.keys():
@@ -154,6 +157,15 @@ class recvdata_adapter:
 			senddata = self._send_mng._send_data_dict[send_id]
 			# 送信データを更新する
 			senddata.update_gui(pos, value)
+
+	def autosend_change(self, autosend_id:str):
+		# 自動送信データ参照設定を更新
+		# 存在チェック
+		if autosend_id not in self._autosend_mng._data_dict.keys():
+			raise Exception(f"autosend_id[{autosend_id}] is not exist.")
+		#
+		self._tail.senddata_ref = self._autosend_mng._data_dict[autosend_id]
+
 
 
 class analyze_result:
@@ -271,8 +283,6 @@ class autoresp_mng:
 		self._prev_recv_analyze_result: bool = True
 		# 処理時にノードを区別するためのID。なんでもいい
 		_tail_id: int = 0
-		# 受信データ解析に渡す操作用オブジェクト
-		self._recvdata_adapter = recvdata_adapter(as_mng, s_mng)
 
 		"""
 		受信データ定義が次のようになっているとき
@@ -382,13 +392,15 @@ class autoresp_mng:
 			node.enable = resp[autoresp_list.ENABLE]
 			node.id = id
 			node.send_id = resp[autoresp_list.SENDDATA_ID]
+			# 受信データ解析アダプタ
+			node.anlyz_adpt = recvdata_adapter(self._autosend_mng, self._send_mng, node)
 			# 受信解析ハンドラを取得
 			hdl_data = resp[autoresp_list.ANLYZ_DATA]
 			if hdl_data is not None:
-				node.anlyz_data = partial(hdl_data, hdl=self._recvdata_adapter)
+				node.anlyz_data = partial(hdl_data, hdl=node.anlyz_adpt)
 			hdl_log = resp[autoresp_list.ANLYZ_LOG]
 			if hdl_log is not None:
-				node.anlyz_log = partial(hdl_log, hdl=self._recvdata_adapter)
+				node.anlyz_log = partial(hdl_log, hdl=node.anlyz_adpt)
 			# 送信データ参照設定
 			if node.send_id not in self._autosend_mng._data_dict.keys():
 				node.enable = False

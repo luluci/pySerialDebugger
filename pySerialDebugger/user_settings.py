@@ -62,6 +62,8 @@ def autosend_settings() -> None:
 	data = [
 		[	False,		"TestAutoSend1",		[send("TestSend_A"), wait(50), send("TestSend_B"), wait(50)]],
 		[	False,		"TestAutoSend2",		[send("TestSend_C"), wait(50), send("TestSend_D"), wait(50)]],
+		[	False,		"TestAutoSend2-2",		[send("TestSend_C"), wait(50), send("TestSend_C"), wait(50)]],
+		[	False,		"TestAutoSend2-3",		[send("TestSend_D"), wait(50), send("TestSend_D"), wait(50)]],
 		[	False,		"TestAutoSend3",		[send("TestSend_X"), wait(25), send("TestSend_X"), wait(50)]],
 		[	False,		"TestAutoSend4",		[send("TestSend_X"), wait(25), send("TestSend2"), wait(100), send("TestSend3"), wait(100), send("TestSend2"), jump(3)]],
 		[	False,		"TestAutoSend5",		[send("TestSend_X"), wait(500)]],
@@ -71,11 +73,39 @@ def autosend_settings() -> None:
 	return (caption, head, data)
 
 
+class test_data_buff:
+	def __init__(self) -> None:
+		self.B_data = 0
+		self.autosend = [
+			"TestAutoSend2",
+			"TestAutoSend2-2",
+			"TestAutoSend2-3",
+		]
+		self.autosend_pos = 0
+		self.autosend_size = len(self.autosend)
+
+	def next_autosend(self):
+		next = self.autosend[self.autosend_pos]
+		self.autosend_pos += 1
+		if self.autosend_pos >= self.autosend_size:
+			self.autosend_pos = 0
+		return next
+
+test_data = test_data_buff()
+
 def analyze_recvdata_test1(hdl: recvdata_adapter, data: bytes):
+	global test_data
 	# 受信データからデータ抽出
 	mode = data[2] ^ 0x0F
 	# 送信データに反映:TestSend_Aの4バイト目を変更
 	hdl.senddata_update("TestSend_A", 2, mode)
+	test_data.B_data += 1
+	hdl.senddata_update("TestSend_B", 2, test_data.B_data)
+
+def analyze_recvdata_test2(hdl: recvdata_adapter, data: bytes):
+	#
+	hdl.autosend_change(test_data.next_autosend())
+
 
 
 def auto_response_settings():
@@ -105,7 +135,7 @@ def auto_response_settings():
 				#有効		# 受信値		# 自動応答対象									# 応答データ名			# 受信解析
 				#設定		# 名称			# 受信データパターン							# (自動送信設定)		# データ解析				# ログ作成
 			[	True,		"Test1",		[hex('00'), hex('AA'), any(1), any(1)],			"TestAutoSend1",		analyze_recvdata_test1,		None,],
-			[	True,		"Test2",		[hex('00'), hex('BB'), any(1), any(1)],			"TestAutoSend2",		None,						None,],
+			[	True,		"Test2",		[hex('00'), hex('BB'), any(1), any(1)],			"TestAutoSend2",		analyze_recvdata_test2,		None,],
 			[	True,		"Test3",		[hex('00'), any('FF'), hex('02')],				"TestAutoSend3",		None,						None,],
 			[	True,		"Test4",		[any(1), any(1), hex('02')],					"TestAutoSend4",		None,						None,],
 			[	True,		"Test5",		[any(1), any(1), hex('00')],					"TestAutoSend4",		None,						None,],
