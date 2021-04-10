@@ -476,14 +476,17 @@ class gui_manager:
 						# スレッドセーフらしい
 						self._window.write_event_value("_swe_disconnected", "")
 					elif msg.notify == thread.ThreadNotify.RECV_ANALYZE:
+						# 受信解析結果メッセージ
 						result = msg.result
 						if result.prev_buff_commit():
+							# 直前までのバッファを出力
 							if self.log_str != "":
 								# ログ出力
 								self.comm_hdle_log_output("RX", self.log_str, "", result._timestamp_rx_prev)
 								# バッファクリア
 								self.log_str = ""
 						if result.new_data_push():
+							# 受信データをバッファに追加要求
 							# 受信時タイムスタンプ取得
 							timestamp_rx = result._timestamp_rx
 							# ログバッファに受信データを追加
@@ -491,9 +494,10 @@ class gui_manager:
 							#self.log_str += format(result.data, "02X")
 							self.log_str += result.data.hex()
 						if result.buff_commit():
+							# 受信データを出力する
 							if self.log_str != "":
 								# ログ出力
-								self.comm_hdle_log_output("RX", self.log_str, result.id, result._timestamp_rx)
+								self.comm_hdle_log_output("RX", self.log_str, result.id, result._timestamp_rx, result.anlyz_log)
 								# バッファクリア
 								self.log_str = ""
 						pass
@@ -521,7 +525,7 @@ class gui_manager:
 		# スレッド終了をメインスレッドに通知
 		self._window.write_event_value("_swe_hdrl_exit", "")
 
-	def comm_hdle_log_output(self, rxtx:str, data:str, detail:str, timestamp:int):
+	def comm_hdle_log_output(self, rxtx:str, data:str, data_id:str, timestamp:int, anlyz_log = None):
 		# タイムスタンプ整形
 		ts_next, ts_ns = divmod(timestamp, 1000)	# nano sec
 		ts_next, ts_us = divmod(ts_next, 1000)		# micro sec
@@ -529,11 +533,16 @@ class gui_manager:
 		ts_next, ts_sec = divmod(ts_next, 60)		# sec
 		ts_hour, ts_min = divmod(ts_next, 60)		# minute
 		ts_str = "{0:02}:{1:02}:{2:02}.{3:03}.{4:03}".format(ts_hour, ts_min, ts_sec, ts_ms, ts_us)
-		# ログ作成
-		if detail == "":
-			log_temp = "[{0}] [{1:2}]    {2:60}".format(ts_str, rxtx, data)
-		else:
-			log_temp = "[{0}] [{1:2}]    {2:60} ({3})".format(ts_str, rxtx, data, detail)
+		# 詳細作成
+		detail = ""
+		# id付与
+		if data_id != "":
+			detail = f"({data_id}) "
+		# ログ解析
+		if anlyz_log is not None:
+			detail += anlyz_log(data=bytes.fromhex(data))
+		# ログ出力
+		log_temp = "[{0}] [{1:2}]    {2:60} {3}".format(ts_str, rxtx, data, detail)
 		print(log_temp)
 
 	def close(self) -> None:

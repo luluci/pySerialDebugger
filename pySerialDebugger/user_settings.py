@@ -107,6 +107,20 @@ def analyze_recvdata_test2(hdl: recvdata_adapter, data: bytes):
 	hdl.autosend_change(test_data.next_autosend())
 
 
+def anlyze_recvdata_test1_log(hdl: recvdata_adapter, data: bytes):
+	log = ""
+	if data[2] == 0x01:
+		log += "初回"
+	elif data[2] == 0x02:
+		log += "2回目"
+	elif data[2] == 0x04:
+		log += "3回目"
+	elif data[2] == 0x05:
+		log += "4回目"
+	elif data[2] == 0x06:
+		log += "5回目"
+	return log
+
 
 def auto_response_settings():
 	"""
@@ -134,7 +148,7 @@ def auto_response_settings():
 		data = [
 				#有効		# 受信値		# 自動応答対象									# 応答データ名			# 受信解析
 				#設定		# 名称			# 受信データパターン							# (自動送信設定)		# データ解析				# ログ作成
-			[	True,		"Test1",		[hex('00'), hex('AA'), any(1), any(1)],			"TestAutoSend1",		analyze_recvdata_test1,		None,],
+			[	True,		"Test1",		[hex('00'), hex('AA'), any(1), any(1)],			"TestAutoSend1",		analyze_recvdata_test1,		anlyze_recvdata_test1_log,],
 			[	True,		"Test2",		[hex('00'), hex('BB'), any(1), any(1)],			"TestAutoSend2",		analyze_recvdata_test2,		None,],
 			[	True,		"Test3",		[hex('00'), any('FF'), hex('02')],				"TestAutoSend3",		None,						None,],
 			[	True,		"Test4",		[any(1), any(1), hex('02')],					"TestAutoSend4",		None,						None,],

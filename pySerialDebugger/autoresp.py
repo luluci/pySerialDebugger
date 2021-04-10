@@ -207,11 +207,13 @@ class analyze_result:
 	def set_analyze_NG2NG(self):
 		pass
 
-	def set_analyze_succeeded(self, tail_node: autoresp_tail_node):
+	def set_analyze_succeeded(self, tail_node: autoresp_tail_node, anlyz_log):
 		if tail_node is not None:
 			# 受信解析データ設定
 			self.id = tail_node.id
 			self.tail_node = tail_node
+		# 受信データ解析:ログ
+		self.anlyz_log = anlyz_log
 		# フラグ設定
 		self._autoresp_send = True
 		self._rx_buf_push = True
@@ -558,7 +560,7 @@ class autoresp_mng:
 		# 遷移後ノードでチェック
 		if self._curr_node.tail:
 			# 受信解析正常終了
-			result.set_analyze_succeeded(self._curr_node.tail_active)
+			result.set_analyze_succeeded(self._curr_node.tail_active, self._curr_node.tail_active.anlyz_log)
 			# 正常受信時処理を実施
 			if self._curr_node.tail_active is not None:
 				# 受信データ解析
