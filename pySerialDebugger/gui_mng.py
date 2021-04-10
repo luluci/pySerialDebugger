@@ -50,6 +50,7 @@ class gui_manager:
 		self._window: sg.Window = None
 		self._init_com()
 		self._init_window()
+		self._init_window_inf()		# window作成後に実行する
 		self._init_event()
 		self._gui_conn_state = self.DISCONNECTED
 		# sendオプション更新
@@ -179,6 +180,11 @@ class gui_manager:
 		]
 		self._window = sg.Window("pySerialDebugger", layout, finalize=True, enable_close_attempted_event=True)
 
+	def _init_window_inf(self):
+		"""
+		window作成後の初期設定を実施する
+		"""
+		self._send_mng.init_wnd(self._window)
 
 	def _init_event(self) -> None:
 		"""
@@ -482,7 +488,8 @@ class gui_manager:
 							timestamp_rx = result._timestamp_rx
 							# ログバッファに受信データを追加
 							# ログ出力は実施しない
-							self.log_str += format(result.data, "02X")
+							#self.log_str += format(result.data, "02X")
+							self.log_str += result.data.hex()
 						if result.buff_commit():
 							if self.log_str != "":
 								# ログ出力
@@ -650,7 +657,7 @@ class gui_manager:
 		# コンストラクタで解析ツリーを構築、
 		# 自動応答enableが重複したときは自動でdisableに変更する。
 		# このあとにGUI構築すること
-		self._autoresp_mng = autoresp_mng(self._autoresp_data, self._autosend_mng)
+		self._autoresp_mng = autoresp_mng(self._autoresp_data, self._autosend_mng, self._send_mng)
 		autoresp_data.set_gui_info(self._size_data, self._pad_data, self._font_data)
 		# 受信解析マネージャをシリアルマネージャに渡す
 		self._serial.autoresp(self._autoresp_mng)
@@ -705,7 +712,6 @@ class gui_manager:
 		self._send_head = gui_settings[1]
 		self._send_data = gui_settings[2]
 		# 定義解析
-		#self._send_settings_construct()
 		self._send_mng = send_mng(self._send_data)
 		send_data.set_gui_info(self._size_send_data, self._pad_data, self._font_data)
 

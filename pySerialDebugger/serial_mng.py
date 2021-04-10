@@ -185,7 +185,7 @@ class serial_manager:
 				# 受信時の現在時間取得
 				self._time_stamp_rx = self._time_stamp
 				# 受信解析実行
-				result = self._autoresp_mng.recv_analyze(recv[0])
+				result = self._autoresp_mng.recv_analyze(recv)
 				# 自動送信実行
 				# 受信解析結果から送信要求があればこの中で実施される
 				as_result = self._autosend_mng.run(0, self._time_stamp_rx)
@@ -245,6 +245,12 @@ class serial_manager:
 			bytes.fromhex("00AA0202"),
 			200*1000*1000,
 			bytes.fromhex("00BB0202"),
+			200*1000*1000,
+			bytes.fromhex("00AA0402"),
+			200*1000*1000,
+			bytes.fromhex("00AA0502"),
+			200*1000*1000,
+			bytes.fromhex("00AA0602"),
 			200*1000*1000,
 			bytes.fromhex("00FF02"),
 			200*1000*1000,

@@ -1,5 +1,5 @@
 
-from .autoresp import autoresp_data
+from .autoresp import autoresp_data, recvdata_adapter
 from .send_node import send_data
 from .autosend import autosend_data
 
@@ -70,6 +70,14 @@ def autosend_settings() -> None:
 	#
 	return (caption, head, data)
 
+
+def analyze_recvdata_test1(hdl: recvdata_adapter, data: bytes):
+	# 受信データからデータ抽出
+	mode = data[2] ^ 0x0F
+	# 送信データに反映:TestSend_Aの4バイト目を変更
+	hdl.senddata_update("TestSend_A", 2, mode)
+
+
 def auto_response_settings():
 	"""
 	Auto Response Settings
@@ -94,13 +102,13 @@ def auto_response_settings():
 			data5: **0
 		"""
 		data = [
-				#有効		# 受信値		# 自動応答対象									# 応答データ名
-				#設定		# 名称			# 受信データパターン							# (自動送信設定)
-			[	True,		"Test1",		[hex('00'), hex('AA'), any(1), any(1)],			"TestAutoSend1"],
-			[	True,		"Test2",		[hex('00'), hex('BB'), any(1), any(1)],			"TestAutoSend2"],
-			[	True,		"Test3",		[hex('00'), any('FF'), hex('02')],				"TestAutoSend3"],
-			[	True,		"Test4",		[any(1), any(1), hex('02')],					"TestAutoSend4"],
-			[	True,		"Test5",		[any(1), any(1), hex('00')],					"TestAutoSend4"],
+				#有効		# 受信値		# 自動応答対象									# 応答データ名			# 受信解析
+				#設定		# 名称			# 受信データパターン							# (自動送信設定)		# データ解析				# ログ作成
+			[	True,		"Test1",		[hex('00'), hex('AA'), any(1), any(1)],			"TestAutoSend1",		analyze_recvdata_test1,		None,],
+			[	True,		"Test2",		[hex('00'), hex('BB'), any(1), any(1)],			"TestAutoSend2",		None,						None,],
+			[	True,		"Test3",		[hex('00'), any('FF'), hex('02')],				"TestAutoSend3",		None,						None,],
+			[	True,		"Test4",		[any(1), any(1), hex('02')],					"TestAutoSend4",		None,						None,],
+			[	True,		"Test5",		[any(1), any(1), hex('00')],					"TestAutoSend4",		None,						None,],
 		]
 	if False:
 		data = [

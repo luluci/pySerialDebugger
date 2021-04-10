@@ -299,7 +299,10 @@ class send_data_node:
 	"""
 
 	def __init__(self, data: List[any]) -> None:
-
+		# GUI情報
+		self._wnd: sg.Window = None
+		self._gui_key: str = None
+		self._gui_row: int = None
 		# ID設定
 		self.id = data[send_data_list.ID]
 		# FCC情報設定
@@ -332,6 +335,12 @@ class send_data_node:
 		self.update_fcc()
 		# 作成したbytearrayをbytesに反映
 		self.update_bytes()
+
+	def init_wnd(self, wnd: sg.Window):
+		"""
+		window作成後に、windowインスタンスへの参照を設定する
+		"""
+		self._wnd = wnd
 
 	def _calc_send_data_size(self) -> int:
 		# 送信データ定義の長さ、送信データサイズ定義、FCC位置を比較
@@ -449,6 +458,9 @@ class send_data_node:
 		self.data_bytes = bytes(self.data_array)
 
 	def get_gui(self, key:str, row:int):
+		# GUI情報を記憶しておく
+		self._gui_key = key
+		self._gui_row = row
 		# gui部品リストを初期化
 		parts = []
 		# Add resp data col
@@ -465,6 +477,9 @@ class send_data_node:
 		GUIから取得できるstrを受け取る。
 		GUI部品に渡してstrを解析し、bytesとして取得する。
 		"""
+		# key,rowをチェックしてもいい
+		# if key != self._gui_key or row != self._gui_row:
+		# 	raise Exception("unexpected key/row set.")
 		# 該当GUI部品を取得
 		data: send_data = self.data_list[col]
 		# GUI部品にGUI入力値を渡して、解析結果を受け取る
@@ -487,6 +502,17 @@ class send_data_node:
 			fcc_data = self.data_list[fcc_idx]
 			gui_fcc = wnd[(key, row, fcc_idx)]
 			gui_fcc.Update(value=fcc_data.get_gui_value())
+
+	def update_gui(self, pos:int, value:int):
+		"""
+		GUIと送信データを更新する
+		"""
+		# データ整形
+		# 処理を流用するため、無駄になるけど変換する
+		pos = self.map_data2gui[pos]
+		value = f'{value:X}'
+		# 更新処理を実施
+		self.set_gui_value(self._wnd, self._gui_key, self._gui_row, pos, value)
 
 
 class send_mng:
@@ -512,6 +538,13 @@ class send_mng:
 			else:
 				self._send_data_list.append(new_node)
 				print("id[" + new_node.id + "] is duplicate. idx[" + str(i) + "] is ignored.")
+
+	def init_wnd(self, wnd: sg.Window):
+		"""
+		window作成後に、windowインスタンスへの参照を設定する
+		"""
+		for node in self._send_data_list:
+			node.init_wnd(wnd)
 
 
 

@@ -1,7 +1,23 @@
 import enum
+from functools import partial
 from typing import List, Dict
 import PySimpleGUI as sg
-from .autosend import autosend_data, autosend_mng, autosend_node, autosend_list
+from pySerialDebugger.autosend import autosend_data, autosend_mng, autosend_node, autosend_list
+from pySerialDebugger.send_node import send_mng
+
+
+class autoresp_list:
+	"""
+	GUI構築定義データ
+	"""
+	ENABLE = 0			# 有効無効設定
+	ID = 1				# 自動応答設定定義名
+	DATA = 2			# 自動応答対象受信データパターン
+	SENDDATA_ID = 3		# 自動送信データ定義名
+	ANLYZ_DATA = 4		# 受信解析:データ(受信→自動応答の間に実施)
+	ANLYZ_LOG = 5		# 受信解析:ログ作成(ログ出力時に実施)
+
+
 
 class autoresp_data:
 	"""
@@ -119,16 +135,25 @@ class autoresp_tail_node:
 		# 送信データ情報
 		self.send_id: str = None
 		self.senddata_ref = None
+		# 受信データ解析
+		self.anlyz_data = None
+		self.anlyz_log = None
 
 
-class autoresp_list:
-	"""
-	GUI構築定義データ
-	"""
-	ENABLE = 0			# 有効無効設定
-	ID = 1				# 自動応答設定定義名
-	DATA = 2			# 自動応答対象受信データパターン
-	SENDDATA_ID = 3		# 自動送信データ定義名
+
+class recvdata_adapter:
+	def __init__(self, as_mng: autosend_mng, s_mng: send_mng) -> None:
+		# 手動送信データへの参照
+		self._send_mng: send_mng = s_mng
+		# 自動送信データへの参照
+		self._autosend_mng: autosend_mng = as_mng
+
+	def senddata_update(self, send_id:str, pos:int, value:int):
+		if send_id in self._send_mng._send_data_dict.keys():
+			# 送信データへの参照を取得
+			senddata = self._send_mng._send_data_dict[send_id]
+			# 送信データを更新する
+			senddata.update_gui(pos, value)
 
 
 class analyze_result:
@@ -136,7 +161,7 @@ class analyze_result:
 	受信解析結果定義
 	"""
 
-	def __init__(self, data:int) -> None:
+	def __init__(self, data:bytes) -> None:
 		# 今回受信データ
 		self.data = data
 		#
@@ -224,9 +249,11 @@ class autoresp_mng:
 	受信データ解析テーブルを構築
 	"""
 
-	def __init__(self, autoresp, mng: autosend_mng) -> None:
+	def __init__(self, autoresp, as_mng: autosend_mng, s_mng: send_mng) -> None:
+		# 手動送信データへの参照
+		self._send_mng : send_mng = s_mng
 		# 自動送信データへの参照
-		self._autosend_mng: autosend_mng = mng
+		self._autosend_mng: autosend_mng = as_mng
 		# 解析ツリー
 		self.tree = autoresp_node()
 		self.tree.root = True
@@ -237,11 +264,15 @@ class autoresp_mng:
 		# アクセス用にリストと辞書の両方で参照を持つ
 		self.data_dict: Dict[str, autoresp_tail_node] = {}
 		self.data_list: List[autoresp_tail_node] = []
+		# 正常受信データバッファ
+		self._data_buff: bytes = b''
 		# 解析情報
 		self._curr_node: autoresp_node = None
 		self._prev_recv_analyze_result: bool = True
 		# 処理時にノードを区別するためのID。なんでもいい
 		_tail_id: int = 0
+		# 受信データ解析に渡す操作用オブジェクト
+		self._recvdata_adapter = recvdata_adapter(as_mng, s_mng)
 
 		"""
 		受信データ定義が次のようになっているとき
@@ -351,6 +382,13 @@ class autoresp_mng:
 			node.enable = resp[autoresp_list.ENABLE]
 			node.id = id
 			node.send_id = resp[autoresp_list.SENDDATA_ID]
+			# 受信解析ハンドラを取得
+			hdl_data = resp[autoresp_list.ANLYZ_DATA]
+			if hdl_data is not None:
+				node.anlyz_data = partial(hdl_data, hdl=self._recvdata_adapter)
+			hdl_log = resp[autoresp_list.ANLYZ_LOG]
+			if hdl_log is not None:
+				node.anlyz_log = partial(hdl_log, hdl=self._recvdata_adapter)
 			# 送信データ参照設定
 			if node.send_id not in self._autosend_mng._data_dict.keys():
 				node.enable = False
@@ -457,8 +495,9 @@ class autoresp_mng:
 		受信解析を初期化する
 		"""
 		self._curr_node = self.tree
+		self._data_buff = b''
 
-	def recv_analyze(self, data: int) -> analyze_result:
+	def recv_analyze(self, data: bytes) -> analyze_result:
 		# 今回解析結果
 		result = analyze_result(data)
 
@@ -466,33 +505,36 @@ class autoresp_mng:
 		trans_result = self._recv_analyze_trans(data)
 		if trans_result:
 			# 解析OK
+			self._data_buff += data
 			self._recv_analyze_success(data, result)
 		else:
 			# 解析NG
+			self._data_buff = b''
 			self._recv_analyze_failure(data, result)
 		#
 		return result
 
-	def _recv_analyze_trans(self, data: int) -> bool:
+	def _recv_analyze_trans(self, byte_data: bytes) -> bool:
 		result: bool
-		# 状態遷移チェック
-		if data in self._curr_node.next.keys():
-			# 解析ツリーにマッチ
-			self._curr_node = self._curr_node.next[data]
-			# 解析OK
-			result = True
-		elif self._curr_node.next_else is not None:
-			# anyにマッチ
-			self._curr_node = self._curr_node.next_else
-			# 解析OK
-			result = True
-		else:
-			# 解析NG
-			result = False
+		for data in byte_data:
+			# 状態遷移チェック
+			if data in self._curr_node.next.keys():
+				# 解析ツリーにマッチ
+				self._curr_node = self._curr_node.next[data]
+				# 解析OK
+				result = True
+			elif self._curr_node.next_else is not None:
+				# anyにマッチ
+				self._curr_node = self._curr_node.next_else
+				# 解析OK
+				result = True
+			else:
+				# 解析NG
+				result = False
 		#
 		return result
 
-	def _recv_analyze_success(self, data: int, result: analyze_result):
+	def _recv_analyze_success(self, data: bytes, result: analyze_result):
 		# 前回結果
 		if self._prev_recv_analyze_result:
 			# OK -> OK
@@ -505,8 +547,12 @@ class autoresp_mng:
 		if self._curr_node.tail:
 			# 受信解析正常終了
 			result.set_analyze_succeeded(self._curr_node.tail_active)
-			# 自動応答設定
+			# 正常受信時処理を実施
 			if self._curr_node.tail_active is not None:
+				# 受信データ解析
+				if self._curr_node.tail_active.anlyz_data is not None:
+					self._curr_node.tail_active.anlyz_data(data=self._data_buff)
+				# 自動応答設定
 				self._autosend_mng.activate(self._curr_node.tail_active.senddata_ref)
 		else:
 			# 解析継続中
@@ -521,7 +567,7 @@ class autoresp_mng:
 		# 前回結果更新
 		self._prev_recv_analyze_result = True
 
-	def _recv_analyze_failure(self, data: int, result: analyze_result):
+	def _recv_analyze_failure(self, data: bytes, result: analyze_result):
 		# 前回結果
 		if self._prev_recv_analyze_result:
 			# OK -> NG
@@ -540,6 +586,7 @@ class autoresp_mng:
 			self._recv_analyze_success(data, result)
 			# ここまでの解析は失敗、次の解析開始
 			result.set_analyze_next_start()
+			self._data_buff = data
 		else:
 			# 解析失敗継続
 			result.set_analyze_failed()
