@@ -125,7 +125,7 @@ class serial_manager:
 		"""
 		自動送信用コールバック関数
 		"""
-		if len(data) > 0:
+		if len(data) > 0 and not DEBUG:
 			#if self._serial.out_waiting > 0:
 			self._serial.write(data)
 			self._serial.flush()
@@ -213,11 +213,15 @@ class serial_manager:
 				if (curr_timestamp - self._time_stamp_rx) >= self._send_tx_delay:
 					msg = thread.messenger.get_notify_serial()
 					if msg.notify == thread.ThreadNotify.TX_BYTES:
-						# 手動送信
-						self._serial.write(msg.data)
-						self._serial.flush()
-						# 送信実施を通知
-						thread.messenger.notify_hdlr_send(msg.id, msg.data, self._time_stamp_rx)
+						if msg.node is not None:
+							if not DEBUG:
+								# 手動送信
+								self._serial.write(msg.node.data_bytes)
+								self._serial.flush()
+							# 送信実施を通知
+							send_result = autosend_result()
+							send_result.set_send(msg.node, self._time_stamp_rx)
+							thread.messenger.notify_hdlr_send(send_result)
 					if msg.notify == thread.ThreadNotify.AUTORESP_UPDATE:
 						# コールバック関数で更新を実施
 						msg.cb()

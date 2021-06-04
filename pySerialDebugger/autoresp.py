@@ -559,15 +559,19 @@ class autoresp_mng:
 		# tailチェック
 		# 遷移後ノードでチェック
 		if self._curr_node.tail:
+			tail_node = self._curr_node.tail_active
+			anlyz_log = None
+			if tail_node is not None:
+				anlyz_log = tail_node.anlyz_log
 			# 受信解析正常終了
-			result.set_analyze_succeeded(self._curr_node.tail_active, self._curr_node.tail_active.anlyz_log)
+			result.set_analyze_succeeded(tail_node, anlyz_log)
 			# 正常受信時処理を実施
-			if self._curr_node.tail_active is not None:
+			if tail_node is not None:
 				# 受信データ解析
-				if self._curr_node.tail_active.anlyz_data is not None:
-					self._curr_node.tail_active.anlyz_data(data=self._data_buff)
+				if tail_node.anlyz_data is not None:
+					tail_node.anlyz_data(data=self._data_buff)
 				# 自動応答設定
-				self._autosend_mng.activate(self._curr_node.tail_active.senddata_ref)
+				self._autosend_mng.activate(tail_node.senddata_ref)
 		else:
 			# 解析継続中
 			result.set_analyzing()

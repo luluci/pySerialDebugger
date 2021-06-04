@@ -68,7 +68,10 @@ class gui_manager:
 		if not self._comport_list:
 		# if len(self._comport_list) == 0:
 		# if self._comport_list == []:
-			raise Exception("COM port not found.")
+			#raise Exception("COM port not found.")
+			print("COM port not found, run DEBUG mode.")
+			serial_mng.DEBUG = True
+			self._comport_list.append("<None>")
 		self._bps_list = [2400, 9600]
 		self._bytesize_list = [5, 6, 7, 8]
 		self._parity_list = ["None", "EVEN", "ODD", "MARK", "SPACE"]
@@ -861,7 +864,7 @@ class gui_manager:
 			print("Queue is full, send req denied.")
 		else:
 			node:send_data_node = self._send_mng._send_data_list[row]
-			thread.messenger.notify_serial_send(node.id, node.data_bytes)
+			thread.messenger.notify_serial_send(node)
 
 	def _sendopt_update(self):
 		time_ptn = re.compile(r'[0-9]+')

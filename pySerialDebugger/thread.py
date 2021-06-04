@@ -3,6 +3,7 @@ import queue
 from typing import Callable
 from . import autoresp
 from pySerialDebugger.autosend import autosend_result
+from pySerialDebugger.send_node import send_data_node
 
 class ThreadNotify(enum.Enum):
 	"""
@@ -63,15 +64,15 @@ class gui_msg:
 		self.cb: Callable[[None], None] = None
 		self.id: str = None
 		self.data: bytes = None
+		node: send_data_node = None
 
 	def autoresp_update(self, cb):
 		self.notify = ThreadNotify.AUTORESP_UPDATE
 		self.cb = cb
 
-	def send(self, id: str, data: bytes):
+	def send(self, node: send_data_node):
 		self.notify = ThreadNotify.TX_BYTES
-		self.id = id
-		self.data = data
+		self.node = node
 
 
 class hdlr_msg:
@@ -156,10 +157,10 @@ class msg_manager:
 		# メッセージ送信
 		self.q_gui2serial_msg.put(new_msg, block=True, timeout=None)
 
-	def notify_serial_send(self, id: str, data: bytes):
+	def notify_serial_send(self, node: send_data_node):
 		# メッセージ作成
 		new_msg = gui_msg()
-		new_msg.send(id, data)
+		new_msg.send(node)
 		# メッセージ送信
 		self.q_gui2serial_msg.put(new_msg, block=True, timeout=None)
 
