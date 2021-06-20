@@ -170,63 +170,71 @@ class serial_manager:
 			self._serial.reset_input_buffer()
 		else:
 			self._debug_serial_read_init()
-		# listening
-		while not thread.messenger.has_exit_serial():
-			if not DEBUG:
-				# シリアル通信バッファチェック
-				recv = self._serial.read(1)
-			else:
-				recv = self._debug_serial_read(1)
-				#recv = b''
-			# 現在時間取得
-			self._timestamp = time.perf_counter_ns()
-			# データを受信した場合
-			if len(recv) > 0:
-				# 受信時の現在時間取得
-				self._timestamp_rx = self._timestamp
-				# 受信解析実行
-				result = self._autoresp_mng.recv_analyze(recv)
-				# 自動送信実行
-				# 受信解析結果から送信要求があればこの中で実施される
-				as_result = self._autosend_mng.run(0, self._timestamp_rx)
-				# 解析結果処理
-				if result.has_notify():
-					result.set_timestamp(self._timestamp_rx, self._timestamp_rx_prev)
-					thread.messenger.notify_hdlr_recv_analyze(result)
-				if as_result.is_send():
-					# 自動応答送信データが有効なときだけ送信実行
-					thread.messenger.notify_hdlr_send(as_result)
-				# 前回受信時間
-				self._timestamp_rx_prev = self._timestamp_rx
-			else:
-				# 自動送信実行
-				# 受信解析結果から送信要求があればこの中で実施される
-				as_result = self._autosend_mng.run(0, self._timestamp)
-				if as_result.is_send():
-					# 自動応答送信データが有効なときだけ送信実行
-					thread.messenger.notify_hdlr_send(as_result)
-			# GUIからの通知チェック
-			if thread.messenger.has_notify_serial():
-				# 前回シリアル受信から一定時間内は受信中とみなし送信を抑制する
-				# この待機時間はGUIから設定する
-				curr_timestamp = time.perf_counter_ns()
-				if (curr_timestamp - self._timestamp_rx_prev) >= self._send_tx_delay:
-					msg = thread.messenger.get_notify_serial()
-					if msg.notify == thread.ThreadNotify.TX_BYTES:
-						if msg.node is not None:
-							if not DEBUG:
-								# 手動送信
-								self._serial.write(msg.node.data_bytes)
-								self._serial.flush()
-							# 送信実施を通知
-							send_result = autosend_result()
-							send_result.set_send(msg.node, self._timestamp_rx_prev)
-							thread.messenger.notify_hdlr_send(send_result)
-					if msg.notify == thread.ThreadNotify.AUTORESP_UPDATE:
-						# コールバック関数で更新を実施
-						msg.cb()
-						# 自動応答データ設定更新完了を通知
-						thread.messenger.notify_hdlr_autoresp_updated()
+		try:
+			# listening
+			while not thread.messenger.has_exit_serial():
+				if not DEBUG:
+					# シリアル通信バッファチェック
+					recv = self._serial.read(1)
+				else:
+					recv = self._debug_serial_read(1)
+					#recv = b''
+				# 現在時間取得
+				self._timestamp = time.perf_counter_ns()
+				# データを受信した場合
+				if len(recv) > 0:
+					# 受信時の現在時間取得
+					self._timestamp_rx = self._timestamp
+					# 受信解析実行
+					result = self._autoresp_mng.recv_analyze(recv)
+					# 自動送信実行
+					# 受信解析結果から送信要求があればこの中で実施される
+					as_result = self._autosend_mng.run(0, self._timestamp_rx)
+					# 解析結果処理
+					if result.has_notify():
+						result.set_timestamp(self._timestamp_rx, self._timestamp_rx_prev)
+						thread.messenger.notify_hdlr_recv_analyze(result)
+					if as_result.is_send():
+						# 自動応答送信データが有効なときだけ送信実行
+						thread.messenger.notify_hdlr_send(as_result)
+					# 前回受信時間
+					self._timestamp_rx_prev = self._timestamp_rx
+				else:
+					# 自動送信実行
+					# 受信解析結果から送信要求があればこの中で実施される
+					as_result = self._autosend_mng.run(0, self._timestamp)
+					if as_result.is_send():
+						# 自動応答送信データが有効なときだけ送信実行
+						thread.messenger.notify_hdlr_send(as_result)
+				# GUIからの通知チェック
+				if thread.messenger.has_notify_serial():
+					# 前回シリアル受信から一定時間内は受信中とみなし送信を抑制する
+					# この待機時間はGUIから設定する
+					curr_timestamp = time.perf_counter_ns()
+					if (curr_timestamp - self._timestamp_rx_prev) >= self._send_tx_delay:
+						msg = thread.messenger.get_notify_serial()
+						if msg.notify == thread.ThreadNotify.TX_BYTES:
+							if msg.node is not None:
+								if not DEBUG:
+									# 手動送信
+									self._serial.write(msg.node.data_bytes)
+									self._serial.flush()
+								# 送信実施を通知
+								send_result = autosend_result()
+								send_result.set_send(msg.node, self._timestamp_rx_prev)
+								thread.messenger.notify_hdlr_send(send_result)
+						if msg.notify == thread.ThreadNotify.AUTORESP_UPDATE:
+							# コールバック関数で更新を実施
+							msg.cb()
+							# 自動応答データ設定更新完了を通知
+							thread.messenger.notify_hdlr_autoresp_updated()
+		except:
+			import traceback
+			traceback.print_exc()
+			# 処理を終了することを通知
+			thread.messenger.notify_hdlr_autoresp_disconnected()
+			print("Serial Manager occur exception!")
+			return
 
 		# 自動送信停止
 		# 本スレッドが稼働しなければ自動送信も動かないので、
