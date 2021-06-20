@@ -1,9 +1,6 @@
-from math import trunc
 from typing import Union, List
 import serial
 from serial.tools import list_ports, list_ports_common
-from multiprocessing import Value
-import queue
 import time
 import enum
 

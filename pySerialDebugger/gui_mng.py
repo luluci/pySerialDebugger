@@ -2,9 +2,6 @@ import time
 import concurrent.futures
 from typing import Any, Callable, Union, List, Type, Dict, Tuple
 import PySimpleGUI as sg
-from PySimpleGUI.PySimpleGUI import Input
-from multiprocessing import Array, Value
-import queue
 import re
 import enum
 from . import serial_mng
@@ -286,25 +283,8 @@ class gui_manager:
 			self._conn_status_hdl.Update(value="Disconnecting...")
 
 		elif self._gui_conn_state == self.DISCONNECTING:
-			# 切断完了判定を実施
-			if not self._comm_hdle_notify.empty():
-				# 切断通知あり
-				# キューを空にしておく
-				self._comm_hdle_notify.get_nowait()
-				# 念のため切断
-				self._serial_close()
-				# スレッド解放
-				self._future_serial = None
-				# GUI操作
-				self._conn_btn_hdl.Update(text="Connect", disabled=False)
-				self._conn_status_hdl.Update(value="---")
-				# 次状態へ
-				self._gui_conn_state = self.DISCONNECTED
-			else:
-				# イベント周期で切断をポーリング
-				# time.sleep(0.01)
-				# self._window.write_event_value("btn_connect", "")
-				pass
+			# 切断中はボタン無効にしているので、このパスはありえない
+			print("DISCONNECTING中にボタンイベント発生。バグでは？")
 
 		else:
 			print("ありえない状態。バグ")
