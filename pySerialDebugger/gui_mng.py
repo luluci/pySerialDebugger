@@ -66,15 +66,12 @@ class gui_manager:
 		for com in self._serial.get_com_list():
 			self._comport_list.append( com.device )
 		if not self._comport_list:
-		# if len(self._comport_list) == 0:
-		# if self._comport_list == []:
-			#raise Exception("COM port not found.")
 			print("COM port not found, run DEBUG mode.")
 			serial_mng.DEBUG = True
 			self._comport_list.append("<None>")
 		self._bps_list = [2400, 9600]
-		self._bytesize_list = [5, 6, 7, 8]
-		self._parity_list = ["None", "EVEN", "ODD", "MARK", "SPACE"]
+		self._bytesize_list = [8, 5, 6, 7]
+		self._parity_list = ["EVEN", "None", "ODD", "MARK", "SPACE"]
 		self._stopbit_list = [1,1.5,2]
 
 	def _init_window(self):
@@ -95,13 +92,13 @@ class gui_manager:
 			sg.Combo(self._bps_list, key="cmb_baudrate", default_value=self._bps_list[0], size=(7, 1)),
 			sg.Text(" "),
 			sg.Text("ByteSize:"),
-			sg.Combo(self._bytesize_list, key="cmb_byte_size", default_value=8, size=(7, 1)),
+			sg.Combo(self._bytesize_list, key="cmb_byte_size", default_value=self._bytesize_list[0], size=(7, 1)),
 			sg.Text(" "),
 			sg.Text("Parity:"),
-			sg.Combo(self._parity_list, key="cmb_parity", default_value="EVEN", size=(7, 1)),
+			sg.Combo(self._parity_list, key="cmb_parity", default_value=self._parity_list[0], size=(7, 1)),
 			sg.Text(" "),
 			sg.Text("StopBit:"),
-			sg.Combo(self._stopbit_list, key="cmb_stop_bit", default_value=1, size=(7, 1)),
+			sg.Combo(self._stopbit_list, key="cmb_stop_bit", default_value=self._stopbit_list[0], size=(7, 1)),
 		]
 		# GUI共通部品定義
 		self._gui_param_init()
@@ -122,7 +119,7 @@ class gui_manager:
 			],
 		]
 		layout_serial_send_column = [
-			[sg.Column(layout_serial_send, scrollable=True, vertical_scroll_only=False, size=(1450, 280), vertical_alignment="top")],
+			[sg.Column(layout_serial_send, scrollable=True, vertical_scroll_only=False, size=self._size_rxtx, vertical_alignment="top")],
 			[sg.Frame("Send Option:", layout_serial_send_option)],
 		]
 		# Define: AutoSend View
@@ -134,7 +131,7 @@ class gui_manager:
 			*self._layout_autosend_data
 		]
 		layout_serial_autosend_column = [
-			[sg.Column(layout_serial_autosend, scrollable=True, vertical_scroll_only=False, size=(1450, 280), vertical_alignment="top")],
+			[sg.Column(layout_serial_autosend, scrollable=True, vertical_scroll_only=False, size=self._size_rxtx, vertical_alignment="top")],
 		]
 		# Define: AutoResponse View
 		self._auto_response_init()
@@ -145,7 +142,7 @@ class gui_manager:
 			*self._layout_autoresp_data
 		]
 		layout_serial_auto_resp_column = [
-			[sg.Column(layout_serial_auto_resp, scrollable=True, vertical_scroll_only=False, size=(1450, 280), vertical_alignment="top")],
+			[sg.Column(layout_serial_auto_resp, scrollable=True, vertical_scroll_only=False, size=self._size_rxtx, vertical_alignment="top")],
 			[sg.Button("Update", key="btn_autoresp_update", size=(15, 1), enable_events=True)],
 		]
 		# Define: log View
@@ -157,10 +154,10 @@ class gui_manager:
 			]
 		]
 		layout_serial_log_caption = [
-			sg.Column(layout_serial_log_col, scrollable=False, size=(800, 30))
+			sg.Column(layout_serial_log_col, scrollable=False, size=(800, 24))
 		]
 		layout_serial_log_output = [
-			sg.Output(size=(160, 10), echo_stdout_stderr=True, font=self._log_font)
+			sg.Output(size=self._size_log, echo_stdout_stderr=True, font=self._log_font)
 		]
 		layout_serial_log = [
 			layout_serial_log_caption,
@@ -612,6 +609,8 @@ class gui_manager:
 		self._font_data = (self._data_font_family, 9)
 
 		### サイズ定義
+		self._size_rxtx = (1450, 280)		# 送受信設定GUI部品サイズ
+		self._size_log = (160, 10)			# ログGUI部品サイズ
 		self._size_caption = (23, 1)
 		self._size_btn_txt = (5, 1)
 		self._size_btn = (5, 1)
