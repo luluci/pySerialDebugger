@@ -8,7 +8,7 @@
             "name": "Python: pySerialDebugger",
             "type": "python",
             "request": "launch",
-            "program": "./__main__.py",
+            "program": "${workspaceFolder}/__main__.py",
             "console": "integratedTerminal"
         },
         {

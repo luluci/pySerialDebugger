@@ -145,9 +145,9 @@ class serial_manager:
 		"""
 		# init
 		timeout = None
-		self._time_stamp: int = 0
-		self._time_stamp_rx: int = 0
-		self._time_stamp_rx_prev: int = 0
+		self._timestamp: int = 0
+		self._timestamp_rx: int = 0
+		self._timestamp_rx_prev: int = 0
 		self._recv_analyze_result = False
 
 		# 自動応答初期化
@@ -178,30 +178,30 @@ class serial_manager:
 			else:
 				recv = self._debug_serial_read(1)
 				#recv = b''
-			# 受信時の現在時間取得
-			self._time_stamp = time.perf_counter_ns()
+			# 現在時間取得
+			self._timestamp = time.perf_counter_ns()
 			# データを受信した場合
 			if len(recv) > 0:
 				# 受信時の現在時間取得
-				self._time_stamp_rx = self._time_stamp
+				self._timestamp_rx = self._timestamp
 				# 受信解析実行
 				result = self._autoresp_mng.recv_analyze(recv)
 				# 自動送信実行
 				# 受信解析結果から送信要求があればこの中で実施される
-				as_result = self._autosend_mng.run(0, self._time_stamp_rx)
+				as_result = self._autosend_mng.run(0, self._timestamp_rx)
 				# 解析結果処理
 				if result.has_notify():
-					result.set_timestamp(self._time_stamp_rx, self._time_stamp_rx_prev)
+					result.set_timestamp(self._timestamp_rx, self._timestamp_rx_prev)
 					thread.messenger.notify_hdlr_recv_analyze(result)
 				if as_result.is_send():
 					# 自動応答送信データが有効なときだけ送信実行
 					thread.messenger.notify_hdlr_send(as_result)
 				# 前回受信時間
-				self._time_stamp_rx_prev = self._time_stamp_rx
+				self._timestamp_rx_prev = self._timestamp_rx
 			else:
 				# 自動送信実行
 				# 受信解析結果から送信要求があればこの中で実施される
-				as_result = self._autosend_mng.run(0, self._time_stamp)
+				as_result = self._autosend_mng.run(0, self._timestamp)
 				if as_result.is_send():
 					# 自動応答送信データが有効なときだけ送信実行
 					thread.messenger.notify_hdlr_send(as_result)
@@ -210,7 +210,7 @@ class serial_manager:
 				# 前回シリアル受信から一定時間内は受信中とみなし送信を抑制する
 				# この待機時間はGUIから設定する
 				curr_timestamp = time.perf_counter_ns()
-				if (curr_timestamp - self._time_stamp_rx) >= self._send_tx_delay:
+				if (curr_timestamp - self._timestamp_rx_prev) >= self._send_tx_delay:
 					msg = thread.messenger.get_notify_serial()
 					if msg.notify == thread.ThreadNotify.TX_BYTES:
 						if msg.node is not None:
@@ -220,7 +220,7 @@ class serial_manager:
 								self._serial.flush()
 							# 送信実施を通知
 							send_result = autosend_result()
-							send_result.set_send(msg.node, self._time_stamp_rx)
+							send_result.set_send(msg.node, self._timestamp_rx_prev)
 							thread.messenger.notify_hdlr_send(send_result)
 					if msg.notify == thread.ThreadNotify.AUTORESP_UPDATE:
 						# コールバック関数で更新を実施
@@ -241,7 +241,7 @@ class serial_manager:
 		print("Exit: connect()")
 
 	def _debug_serial_read_init(self) -> None:
-		self._debug_data = [
+		self._debug_data_list = [
 			bytes.fromhex("00AA0101"),
 			200*1000*1000,
 			bytes.fromhex("00BB0101"),
@@ -260,7 +260,9 @@ class serial_manager:
 			200*1000*1000,
 		]
 		self._debug_data_pos = 0
-		self._debug_data_len = len(self._debug_data)
+		self._debug_data_list_len = len(self._debug_data_list)
+		self._debug_data = self._debug_data_list[self._debug_data_pos]
+		self._debug_data_type = type(self._debug_data)
 		# bytes用データ
 		self._debug_bytes_pos = 0
 		self._debug_bytes_delay = 5 * 1000
@@ -276,34 +278,41 @@ class serial_manager:
 		timestamp_diff = self._debug_timestamp - self._debug_timestamp_prev
 		result = b''
 		# debug data check
-		data = self._debug_data[self._debug_data_pos]
-		if isinstance(data, bytes):
+		if self._debug_data_type is bytes:
+			self._debug_data: bytes
 			# bytesのときは疑似シリアル受信
 			# 受信ディレイ待機
 			if timestamp_diff > self._debug_bytes_delay:
 				# 受信データ作成
-				result = data[self._debug_bytes_pos].to_bytes(1, 'little')
+				result = self._debug_data[self._debug_bytes_pos].to_bytes(1, 'little')
 				# 受信データ数チェック
 				self._debug_bytes_pos += 1
-				if self._debug_bytes_pos >= len(data):
+				if self._debug_bytes_pos >= len(self._debug_data):
 					self._debug_bytes_pos = 0
-					self._debug_data_pos += 1
-					if self._debug_data_pos >= self._debug_data_len:
-						self._debug_data_pos = 0
+					self._debug_serial_update_data()
 					self._debug_wait_begin = self._debug_timestamp
-		elif isinstance(data, int):
+		elif self._debug_data_type is int:
+			self._debug_data: int
 			waittime = self._debug_timestamp - self._debug_wait_begin
 			# intのときはwait
-			if waittime > data:
+			if waittime > self._debug_data:
 				# wait経過で次へ
 				self._debug_bytes_pos = 0
-				self._debug_data_pos += 1
-				if self._debug_data_pos >= self._debug_data_len:
-					self._debug_data_pos = 0
+				self._debug_serial_update_data()
 				self._debug_wait_begin = self._debug_timestamp
 
 		self._debug_timestamp_prev = self._debug_timestamp
 		return result
+
+	def _debug_serial_update_data(self):
+		# debug_data_list位置更新
+		self._debug_data_pos += 1
+		if self._debug_data_pos >= self._debug_data_list_len:
+			self._debug_data_pos = 0
+		# debug_data更新
+		self._debug_data = self._debug_data_list[self._debug_data_pos]
+		self._debug_data_type = type(self._debug_data)
+
 
 	def _thread_msg_data(self):
 		pass
