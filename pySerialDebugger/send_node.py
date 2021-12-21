@@ -261,7 +261,7 @@ class send_data:
 		if self.type == send_data.SELECT:
 			return self._get_gui_value_select()
 		if self.type == send_data.FIX:
-			return self._get_gui_value_input()
+			return self._get_gui_value_input(fmt)
 		raise Exception("unknown node type detected!")
 
 	def _get_gui_value_input(self, fmt:str) -> str:
