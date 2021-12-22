@@ -360,9 +360,10 @@ class send_data_node:
 					if self.fcc_calc_begin is None or self.fcc_calc_end is None:
 						self.fcc_calc_begin = 0
 						self.fcc_calc_end = i
-
 		# 送信データ定義設定
-		self.size = data[send_data_list.DATA_SIZE]
+		self.size = -1
+		if send_data_list.DATA_SIZE < data_len:
+			self.size = data[send_data_list.DATA_SIZE]
 		# send_dataリスト
 		self.data_list: List[send_data] = None
 		if isinstance(self.data_list_org, List):

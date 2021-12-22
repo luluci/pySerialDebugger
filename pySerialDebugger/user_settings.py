@@ -38,7 +38,7 @@ def send_settings() -> None:
 		[	"TestSend_X",		hex('0100FF'),				-1,			3,			1,				2,				],
 		[	"TestSend_Y",		hex('0A00FF'),				-1,			3,			1,				2,				],
 		[	"TestSend_E1",		[ fix('01'), fix('02'), inp('03'), fix('00') ],		-1,		3,		0,		3,		],
-		[	"TestSend_E2",		[ fix('01'), fix('02'), inp('03'), fcc() ],			-1	],
+		[	"TestSend_E2",		[ fix('01'), fix('02'), inp('03'), fcc() ]	],
 	]
 	#
 	return (caption, head, data)
