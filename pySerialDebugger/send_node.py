@@ -1,6 +1,13 @@
 import re
 from typing import Any, List, Dict, Tuple
 import PySimpleGUI as sg
+import enum
+
+
+class ChecksumType(enum.Enum):
+	SUM = enum.auto()			# 総和
+	TWOS_COMPL = enum.auto()	# 2の補数
+	ONES_COMPL = enum.auto()	# 2の補数
 
 class send_data:
 	"""
@@ -40,6 +47,8 @@ class send_data:
 		if endian is None:
 			endian = 'little'
 		self.endian = endian
+		# FCC情報
+		self.fcc_type: ChecksumType = None
 		# タイプごとに処理
 		if type == send_data.INPUT:
 			self._init_input(name, value)
@@ -125,6 +134,26 @@ class send_data:
 	def bf_16(cls, values: List[any]):
 		values: List[Tuple[send_data, int]]
 		return send_data(send_data.BITFIELD, 16, "kari", None, values, None)
+
+	@classmethod
+	def fcc(cls, checksum: ChecksumType):
+		node = send_data(send_data.FIX, 8, "kari", 0, None, None)
+		node.fcc_type = checksum
+		return node
+
+	@classmethod
+	def fcc_sum(cls):
+		return send_data.fcc(ChecksumType.SUM)
+
+	@classmethod
+	def fcc_2compl(cls):
+		return send_data.fcc(ChecksumType.TWOS_COMPL)
+
+	@classmethod
+	def fcc_1compl(cls):
+		return send_data.fcc(ChecksumType.ONES_COMPL)
+
+
 
 	def get_size(self) -> int:
 		return int(self.size / 8)
@@ -299,20 +328,42 @@ class send_data_node:
 	"""
 
 	def __init__(self, data: List[any]) -> None:
+		data_len = len(data)
 		# GUI情報
 		self._wnd: sg.Window = None
 		self._gui_key: str = None
 		self._gui_row: int = None
 		# ID設定
 		self.id = data[send_data_list.ID]
+		# user_settingsで指定されたオリジナルのsend_dataリストの参照を取得
+		self.data_list_org = data[send_data_list.DATA]
 		# FCC情報設定
-		self.fcc_pos = data[send_data_list.FCC_POS]
-		self.fcc_calc_begin = data[send_data_list.FCC_CALC_BEGIN]
-		self.fcc_calc_end = data[send_data_list.FCC_CALC_END]+1
+		# 個別にFCC情報が設定されていたら取得
+		self.fcc_pos = None
+		self.fcc_calc_begin = None
+		self.fcc_calc_end = None
+		if send_data_list.FCC_CALC_END < data_len:
+			self.fcc_pos = data[send_data_list.FCC_POS]
+			self.fcc_calc_begin = data[send_data_list.FCC_CALC_BEGIN]
+			self.fcc_calc_end = data[send_data_list.FCC_CALC_END]+1
+		# send_dataリストからFCC設定情報を検索
+		# data_list_orgがListのときのみ存在する
+		if isinstance(self.data_list_org, List):
+			# send_dataをすべてチェック
+			for i, node in enumerate(self.data_list_org):
+				node: send_data
+				# FCCノードはFCC情報が初期化されている
+				if node.fcc_type is not None:
+					# FCC位置はFCCノードの位置を優先する
+					self.fcc_pos = i
+					# FCC計算範囲は指定されていなかった場合、FCCノードの直前まですべてとする
+					if self.fcc_calc_begin is None or self.fcc_calc_end is None:
+						self.fcc_calc_begin = 0
+						self.fcc_calc_end = i
+
 		# 送信データ定義設定
 		self.size = data[send_data_list.DATA_SIZE]
 		# send_dataリスト
-		self.data_list_org = data[send_data_list.DATA]
 		self.data_list: List[send_data] = None
 		if isinstance(self.data_list_org, List):
 			# send_dataリストのとき参照設定
@@ -373,9 +424,9 @@ class send_data_node:
 				new_data = send_data(send_data.INPUT, 8, "kari", byte, None, None)
 				self.data_list.append(new_data)
 
-		# send_dataのリストなら1つずつ解析してデータを取得する
-		if self.data_list is not None:
-			tx_data = self._make_send_data_from_list()
+		# この時点で必ずself.data_listは初期化されている
+		# data_listは初期化されているから送信データbytearrayを作成する
+		tx_data = self._make_send_data_from_list()
 
 		# データサイズに対してbytesが短ければ0埋め
 		tx_data_size = len(tx_data)
