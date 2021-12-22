@@ -16,6 +16,8 @@ def send_settings() -> None:
 	sel = send_data.select
 	fix = send_data.fix
 	fcc = send_data.fcc_2compl
+	fcc_nml = send_data.fcc_sum
+	fcc_1compl = send_data.fcc_1compl
 
 	caption = [
 		"[送信データ設定]", "", "送信データ",
@@ -39,6 +41,8 @@ def send_settings() -> None:
 		[	"TestSend_Y",		hex('0A00FF'),				-1,			3,			1,				2,				],
 		[	"TestSend_E1",		[ fix('01'), fix('02'), inp('03'), fix('00') ],		-1,		3,		0,		3,		],
 		[	"TestSend_E2",		[ fix('01'), fix('02'), inp('03'), fcc() ]	],
+		[	"TestSend_E3",		[ fix('01'), fix('02'), inp('03'), fcc_nml() ]	],
+		[	"TestSend_E4",		[ fix('01'), fix('02'), inp('03'), fcc_1compl() ]	],
 	]
 	#
 	return (caption, head, data)

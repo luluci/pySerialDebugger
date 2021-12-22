@@ -339,6 +339,7 @@ class send_data_node:
 		self.data_list_org = data[send_data_list.DATA]
 		# FCC情報設定
 		# 個別にFCC情報が設定されていたら取得
+		self.fcc_type = ChecksumType.TWOS_COMPL
 		self.fcc_pos = None
 		self.fcc_calc_begin = None
 		self.fcc_calc_end = None
@@ -354,6 +355,8 @@ class send_data_node:
 				node: send_data
 				# FCCノードはFCC情報が初期化されている
 				if node.fcc_type is not None:
+					# FCC計算タイプ設定
+					self.fcc_type = node.fcc_type
 					# FCC位置はFCCノードの位置を優先する
 					self.fcc_pos = i
 					# FCC計算範囲は指定されていなかった場合、FCCノードの直前まですべてとする
@@ -499,7 +502,16 @@ class send_data_node:
 		for i in range(self.fcc_calc_begin, self.fcc_calc_end):
 			if (i != self.fcc_pos) and (i < self.size):
 				fcc += self.data_array[i]
-		fcc = ((fcc ^ 0xFF) + 1) % 256
+		# FCC計算タイプ
+		match self.fcc_type:
+			case ChecksumType.SUM:
+				# 総和のみ
+				# fcc = fcc
+				pass
+			case ChecksumType.ONES_COMPL:
+				fcc = ((fcc ^ 0xFF)) % 256
+			case _:
+				fcc = ((fcc ^ 0xFF) + 1) % 256
 		return fcc
 
 	def update_bytes(self):
